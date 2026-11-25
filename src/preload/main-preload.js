@@ -10,6 +10,8 @@ function subscribe(channel, callback) {
 contextBridge.exposeInMainWorld('lumina', {
   ai: {
     analyzeEmail: (params) => ipcRenderer.invoke('ai:analyze-email', params),
+    translateIncomingOnly: (params) => ipcRenderer.invoke('ai:translate-only', params),
+    suggestReplyOnly: (params) => ipcRenderer.invoke('ai:suggest-reply', params),
     composeFromTurkish: (params) => ipcRenderer.invoke('ai:compose-turkish', params),
     reviseReply: (params) => ipcRenderer.invoke('ai:revise-reply', params),
     testConnection: (params) => ipcRenderer.invoke('ai:test-connection', params),

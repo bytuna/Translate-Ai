@@ -9,7 +9,8 @@ const {
   screen,
   clipboard,
   desktopCapturer,
-  safeStorage
+  safeStorage,
+  net
 } = require('electron');
 const path = require('node:path');
 
@@ -335,6 +336,33 @@ function registerIpcHandlers() {
     });
   });
 
+  ipcMain.handle('ai:translate-only', async (_event, params = {}) => {
+    const settings = configStore.getPublicSettings();
+    const apiKey = configStore.getApiKey();
+    const model = resolveActiveModel(settings);
+    return geminiService.translateIncomingOnly({
+      apiKey,
+      model,
+      emailText: params.emailText,
+      translationLang: params.translationLang || settings.translationLang
+    });
+  });
+
+  ipcMain.handle('ai:suggest-reply', async (_event, params = {}) => {
+    const settings = configStore.getPublicSettings();
+    const apiKey = configStore.getApiKey();
+    const model = resolveActiveModel(settings);
+    return geminiService.suggestReplyOnly({
+      apiKey,
+      model,
+      emailText: params.emailText,
+      translationLang: params.translationLang || settings.translationLang,
+      replyLang: params.replyLang || settings.replyLang,
+      tone: params.tone || settings.defaultTone,
+      signature: settings.signature
+    });
+  });
+
   ipcMain.handle('ai:compose-turkish', async (_event, params = {}) => {
     const settings = configStore.getPublicSettings();
     const apiKey = configStore.getApiKey();
@@ -485,8 +513,9 @@ app.whenReady().then(() => {
     filePath: path.join(userData, 'config.json'),
     safeStorage
   });
-  geminiService = createGeminiService();
-  googleTranslateService = createGoogleTranslateService();
+  const electronFetch = (url, opts) => net.fetch(url, opts);
+  geminiService = createGeminiService({ fetchImpl: electronFetch });
+  googleTranslateService = createGoogleTranslateService({ fetchImpl: electronFetch });
   shortcutManager = createShortcutManager({ globalShortcut });
   ocrService = createOcrService({
     cachePath: path.join(userData, 'tessdata'),

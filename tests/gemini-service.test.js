@@ -1,6 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createGeminiService, parseJsonResponse, normalizeModelName } = require('../src/main/gemini-service');
+const {
+  createGeminiService,
+  parseJsonResponse,
+  normalizeModelName,
+  buildThinkingConfig
+} = require('../src/main/gemini-service');
 
 test('sends API key only in x-goog-api-key header and parses structured response', async () => {
   let capturedUrl = '';
@@ -201,4 +206,69 @@ test('listModels ranks newest Gemini text models ahead of older 2.x and image/tt
   assert.equal(models[0].id, 'gemini-3-flash-preview');
   assert.equal(models[1].id, 'gemini-3.1-pro-preview');
   assert.equal(models[models.length - 1].id, 'gemini-3.1-flash-image-preview');
+});
+
+test('buildThinkingConfig picks low-latency config per Gemini generation', () => {
+  assert.deepEqual(buildThinkingConfig('gemini-3.1-flash-lite-preview'), { thinkingLevel: 'minimal' });
+  assert.deepEqual(buildThinkingConfig('gemini-3-flash-preview'), { thinkingLevel: 'minimal' });
+  assert.deepEqual(buildThinkingConfig('gemini-3.1-pro-preview'), { thinkingLevel: 'low' });
+  assert.deepEqual(buildThinkingConfig('gemini-2.5-flash'), { thinkingBudget: 0 });
+  assert.equal(buildThinkingConfig('gemini-2.0-flash'), undefined);
+});
+
+test('retries without thinkingConfig automatically if API returns 400 for thinking parameter', async () => {
+  const bodies = [];
+  const svc = createGeminiService({
+    fetchImpl: async (_url, opts) => {
+      const parsed = JSON.parse(opts.body);
+      bodies.push(parsed);
+      if (bodies.length === 1) {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({ error: { message: 'Invalid value at thinkingConfig.thinkingLevel' } })
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: '{"status":"ok"}' }] } }]
+        })
+      };
+    }
+  });
+
+  const res = await svc.testConnection({ apiKey: 'AIza-KEY', model: 'gemini-3.1-flash-lite-preview' });
+  assert.equal(res.ok, true);
+  assert.equal(typeof res.elapsedMs, 'number');
+  assert.equal(bodies.length, 2);
+  assert.deepEqual(bodies[0].generationConfig.thinkingConfig, { thinkingLevel: 'minimal' });
+  assert.equal(bodies[1].generationConfig.thinkingConfig, undefined);
+});
+
+test('supports separate fast translateIncomingOnly and suggestReplyOnly for parallel Mode 1 UX', async () => {
+  const svc = createGeminiService({
+    fetchImpl: async (_url, opts) => {
+      const parsed = JSON.parse(opts.body);
+      const isTranslate = parsed.generationConfig.responseSchema.required.includes('translation');
+      const payload = isTranslate
+        ? { detectedLanguage: 'İngilizce', detectedLanguageCode: 'en', translation: 'Fiyat listesini gönderir misiniz?' }
+        : { suggestedReplyForeign: 'Dear Sir, please find attached...', suggestedReplyVerification: 'Sayın Yetkili, ekte...' };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }]
+        })
+      };
+    }
+  });
+
+  const [trRes, replyRes] = await Promise.all([
+    svc.translateIncomingOnly({ apiKey: 'AIza-KEY', model: 'gemini-3.1-flash-lite-preview', emailText: 'Please send price list.', translationLang: 'tr' }),
+    svc.suggestReplyOnly({ apiKey: 'AIza-KEY', model: 'gemini-3.1-flash-lite-preview', emailText: 'Please send price list.', translationLang: 'tr', replyLang: 'auto', tone: 'professional', signature: '' })
+  ]);
+  assert.equal(trRes.translation, 'Fiyat listesini gönderir misiniz?');
+  assert.equal(replyRes.suggestedReplyForeign, 'Dear Sir, please find attached...');
 });

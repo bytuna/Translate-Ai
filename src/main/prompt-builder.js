@@ -236,11 +236,90 @@ function buildRevisePayload({
   return { systemInstruction, userPrompt, responseSchema };
 }
 
+function buildTranslateOnlyPayload({ emailText, translationLang = 'tr' }) {
+  const safeEmail = sanitizeUntrustedText(emailText);
+  const targetLangName = getLangName(translationLang);
+
+  const systemInstruction = [
+    'You are an expert business email translator.',
+    SECURITY_PREAMBLE,
+    'Translate accurately and naturally. Return strictly valid JSON.'
+  ].join('\n');
+
+  const userPrompt = [
+    `Detect the language (Turkish display name in detectedLanguage and ISO-639-1 code in detectedLanguageCode) and translate the email into ${targetLangName} (field: translation).`,
+    '<untrusted_email>',
+    safeEmail,
+    '</untrusted_email>'
+  ].join('\n');
+
+  const responseSchema = {
+    type: 'OBJECT',
+    properties: {
+      detectedLanguage: { type: 'STRING' },
+      detectedLanguageCode: { type: 'STRING' },
+      translation: { type: 'STRING' }
+    },
+    required: ['detectedLanguage', 'detectedLanguageCode', 'translation']
+  };
+
+  return { systemInstruction, userPrompt, responseSchema };
+}
+
+function buildSuggestReplyPayload({
+  emailText,
+  translationLang = 'tr',
+  replyLang = 'auto',
+  tone = 'professional',
+  signature = ''
+}) {
+  const safeEmail = sanitizeUntrustedText(emailText);
+  const targetLangName = getLangName(translationLang);
+  const replyLangRule =
+    !replyLang || replyLang === 'auto'
+      ? 'in the exact same language as the incoming email'
+      : `in ${getLangName(replyLang)}`;
+  const toneDesc = getToneDescription(tone);
+  const sigLine = signature && signature.trim()
+    ? `Sign off with: "${signature.trim()}".`
+    : 'Use a clean generic closing without inventing a fake name.';
+
+  const systemInstruction = [
+    'You are an expert international business email correspondence assistant.',
+    SECURITY_PREAMBLE,
+    'Write ONLY the ready-to-paste email body in suggestedReplyForeign (NO "Subject:" or "Konu:" header line).',
+    'Never invent prices, dates, or contractual commitments not stated by the user.',
+    'Return strictly valid JSON.'
+  ].join('\n');
+
+  const userPrompt = [
+    `1. Draft a polished business email reply body ${replyLangRule} with tone: ${toneDesc} (field: suggestedReplyForeign).`,
+    `2. Provide a faithful meaning verification translation of your suggested reply into ${targetLangName} (field: suggestedReplyVerification).`,
+    sigLine,
+    '<untrusted_email>',
+    safeEmail,
+    '</untrusted_email>'
+  ].join('\n');
+
+  const responseSchema = {
+    type: 'OBJECT',
+    properties: {
+      suggestedReplyForeign: { type: 'STRING' },
+      suggestedReplyVerification: { type: 'STRING' }
+    },
+    required: ['suggestedReplyForeign', 'suggestedReplyVerification']
+  };
+
+  return { systemInstruction, userPrompt, responseSchema };
+}
+
 module.exports = {
   LANGUAGE_NAMES,
   TONE_LABELS,
   sanitizeUntrustedText,
   buildAnalyzePayload,
+  buildTranslateOnlyPayload,
+  buildSuggestReplyPayload,
   buildComposePayload,
   buildRevisePayload
 };

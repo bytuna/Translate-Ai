@@ -1,11 +1,13 @@
 const {
   buildAnalyzePayload,
+  buildTranslateOnlyPayload,
+  buildSuggestReplyPayload,
   buildComposePayload,
   buildRevisePayload
 } = require('./prompt-builder');
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_TIMEOUT_MS = 45000;
 
 function scrubSecret(message, apiKey) {
   const str = String(message || '');
@@ -97,8 +99,34 @@ function rankGeminiModel(id) {
   return score;
 }
 
+function buildThinkingConfig(model) {
+  const lower = String(model || '').toLowerCase();
+  const verMatch = lower.match(/^gemini-(\d+)(?:\.(\d+))?/);
+  if (!verMatch) return undefined;
+  const major = Number(verMatch[1]) || 0;
+  const minor = Number(verMatch[2]) || 0;
+
+  if (major >= 3) {
+    if (/flash/.test(lower)) {
+      return { thinkingLevel: 'minimal' };
+    }
+    return { thinkingLevel: 'low' };
+  }
+  if (major === 2 && minor === 5 && /flash/.test(lower)) {
+    return { thinkingBudget: 0 };
+  }
+  return undefined;
+}
+
 function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  async function generateStructured({ apiKey, model = 'gemini-2.5-flash', systemInstruction, userPrompt, responseSchema }) {
+  async function generateStructured({
+    apiKey,
+    model = 'gemini-2.5-flash',
+    systemInstruction,
+    userPrompt,
+    responseSchema,
+    allowThinkingFallback = true
+  }) {
     if (!apiKey || !String(apiKey).trim()) {
       throw new Error('Gemini API anahtarı kayıtlı değil. Lütfen Ayarlar sekmesinden anahtarınızı girin.');
     }
@@ -108,6 +136,16 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const thinkingConfig = allowThinkingFallback ? buildThinkingConfig(cleanModel) : undefined;
+    const generationConfig = {
+      temperature: 0.3,
+      responseMimeType: 'application/json',
+      responseSchema
+    };
+    if (thinkingConfig) {
+      generationConfig.thinkingConfig = thinkingConfig;
+    }
 
     const body = {
       systemInstruction: {
@@ -119,11 +157,7 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
           parts: [{ text: userPrompt }]
         }
       ],
-      generationConfig: {
-        temperature: 0.3,
-        responseMimeType: 'application/json',
-        responseSchema
-      }
+      generationConfig
     };
 
     try {
@@ -148,6 +182,21 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
           } catch {
             detail = '';
           }
+        }
+        if (
+          response.status === 400 &&
+          thinkingConfig &&
+          /thinking/i.test(detail)
+        ) {
+          clearTimeout(timer);
+          return generateStructured({
+            apiKey: cleanKey,
+            model: cleanModel,
+            systemInstruction,
+            userPrompt,
+            responseSchema,
+            allowThinkingFallback: false
+          });
         }
         throw classifyHttpError(response.status, detail, cleanKey, cleanModel);
       }
@@ -197,6 +246,22 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
     return generateStructured({ apiKey, model, ...payload });
   }
 
+  async function translateIncomingOnly({ apiKey, model, emailText, translationLang }) {
+    if (!emailText || !emailText.trim()) {
+      throw new Error('Lütfen çevrilecek e-posta metnini girin.');
+    }
+    const payload = buildTranslateOnlyPayload({ emailText, translationLang });
+    return generateStructured({ apiKey, model, ...payload });
+  }
+
+  async function suggestReplyOnly({ apiKey, model, emailText, translationLang, replyLang, tone, signature }) {
+    if (!emailText || !emailText.trim()) {
+      throw new Error('Lütfen çevrilecek e-posta metnini girin.');
+    }
+    const payload = buildSuggestReplyPayload({ emailText, translationLang, replyLang, tone, signature });
+    return generateStructured({ apiKey, model, ...payload });
+  }
+
   async function composeFromTurkish({ apiKey, model, turkishDraft, targetLang, tone, signature }) {
     if (!turkishDraft || !turkishDraft.trim()) {
       throw new Error('Lütfen dönüştürülecek Türkçe metni yazın.');
@@ -237,6 +302,7 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
 
   async function testConnection({ apiKey, model = 'gemini-2.5-flash' }) {
     const cleanModel = normalizeModelName(model);
+    const start = Date.now();
     const res = await generateStructured({
       apiKey,
       model: cleanModel,
@@ -248,7 +314,7 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
         required: ['status']
       }
     });
-    return { ok: Boolean(res && res.status), model: cleanModel };
+    return { ok: Boolean(res && res.status), model: cleanModel, elapsedMs: Date.now() - start };
   }
 
   async function listModels({ apiKey }) {
@@ -318,6 +384,8 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
 
   return {
     analyzeEmail,
+    translateIncomingOnly,
+    suggestReplyOnly,
     composeFromTurkish,
     reviseReply,
     testConnection,
@@ -328,5 +396,6 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
 module.exports = {
   createGeminiService,
   parseJsonResponse,
-  normalizeModelName
+  normalizeModelName,
+  buildThinkingConfig
 };

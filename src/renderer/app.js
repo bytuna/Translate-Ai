@@ -297,8 +297,9 @@
 
     const reqId = ++state.aiRequestId;
     const reqSubmode = state.submode;
+    const startMs = Date.now();
     setAiError('');
-    setAiBusy(true, reqSubmode === 'incoming' ? 'Çevriliyor ve yanıt hazırlanıyor...' : 'İş maili hazırlanıyor...');
+    setAiBusy(true, reqSubmode === 'incoming' ? 'Çevriliyor...' : 'İş maili hazırlanıyor...');
 
     try {
       state.currentOriginalInput = text;
@@ -306,15 +307,55 @@
       renderRevisionHistory();
 
       if (reqSubmode === 'incoming') {
-        const res = await api.ai.analyzeEmail({
-          emailText: text,
-          translationLang: aiTranslationLang.value,
-          replyLang: aiReplyLang.value,
-          tone: state.tone
-        });
+        const translationLang = aiTranslationLang.value;
+        const replyLang = aiReplyLang.value;
+        const tone = state.tone;
+        let combined = {};
+
+        const trPromise = api.ai
+          .translateIncomingOnly({ emailText: text, translationLang })
+          .then((trRes) => {
+            if (reqId !== state.aiRequestId) return;
+            combined = { ...combined, ...trRes };
+            renderResults(
+              {
+                ...combined,
+                suggestedReplyForeign: combined.suggestedReplyForeign || 'Önerilen iş yanıtı hazırlanıyor...',
+                suggestedReplyVerification: combined.suggestedReplyVerification || '...'
+              },
+              false
+            );
+            showToast(`Çeviri hazır (${((Date.now() - startMs) / 1000).toFixed(1)} sn)`);
+          });
+
+        const replyPromise = api.ai
+          .suggestReplyOnly({ emailText: text, translationLang, replyLang, tone })
+          .then((replyRes) => {
+            if (reqId !== state.aiRequestId) return;
+            combined = { ...combined, ...replyRes };
+            renderResults(
+              {
+                detectedLanguage: combined.detectedLanguage || '',
+                translation: combined.translation || 'Çeviri tamamlanıyor...',
+                ...combined
+              },
+              false
+            );
+          });
+
+        const settled = await Promise.allSettled([trPromise, replyPromise]);
         if (reqId !== state.aiRequestId) return;
-        state.currentDraft = res;
-        renderResults(res, false);
+
+        const firstErr = settled.find((s) => s.status === 'rejected');
+        if (firstErr && !combined.translation && !combined.suggestedReplyForeign) {
+          throw firstErr.reason;
+        }
+        if (firstErr) {
+          setAiError(cleanErrorMessage(firstErr.reason, 'Kısmi hata oluştu.'));
+        }
+        state.currentDraft = combined;
+        renderResults(combined, false);
+        showToast(`Tamamlandı (${((Date.now() - startMs) / 1000).toFixed(1)} sn)`);
       } else {
         const res = await api.ai.composeFromTurkish({
           turkishDraft: text,
@@ -324,6 +365,7 @@
         if (reqId !== state.aiRequestId) return;
         state.currentDraft = res;
         renderResults(res, true);
+        showToast(`Hazır (${((Date.now() - startMs) / 1000).toFixed(1)} sn)`);
       }
     } catch (err) {
       if (reqId !== state.aiRequestId) return;
@@ -682,7 +724,8 @@
         model: setModel.value,
         customModel: setCustomModel.value.trim()
       });
-      testApiResult.textContent = `Bağlantı başarılı (${res.model}) ✓`;
+      const sec = typeof res.elapsedMs === 'number' ? ` — ${(res.elapsedMs / 1000).toFixed(1)} sn` : '';
+      testApiResult.textContent = `Bağlantı başarılı (${res.model}${sec}) ✓`;
       testApiResult.className = 'status-meta status-ok';
     } catch (err) {
       const msg = cleanErrorMessage(err, 'Bağlantı başarısız.');
