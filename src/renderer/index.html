@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lumina AI Mail</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Header -->
+    <header class="topbar drag-region">
+      <div class="brand">
+        <div class="brand-badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 6h16v12H4z"></path>
+            <path d="m4 7 8 6 8-6"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">Lumina AI Mail</span>
+          <span class="brand-sub">Outlook Güvenli Çeviri &amp; Yanıt Asistanı</span>
+        </div>
+      </div>
+
+      <nav class="tab-nav no-drag" role="tablist">
+        <button class="tab-btn active" data-tab="ai" role="tab" aria-selected="true">AI Mail Asistanı</button>
+        <button class="tab-btn" data-tab="quick" role="tab" aria-selected="false">Hızlı Çeviri</button>
+        <button class="tab-btn" data-tab="settings" role="tab" aria-selected="false">Ayarlar</button>
+      </nav>
+
+      <div class="window-controls no-drag">
+        <button id="pinBtn" class="icon-btn" title="Üstte Sabitle (Pin)">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 17v5"></path>
+            <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16h14v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"></path>
+          </svg>
+          <span>Sabitle</span>
+        </button>
+        <button id="hideBtn" class="icon-btn" title="Tepsiye Gizle (Esc)">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <path d="M5 12h14"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Non-destructive Clipboard Banner -->
+    <div id="clipboardBanner" class="banner banner-info hidden">
+      <span id="clipboardBannerText">Panoda yeni metin algılandı.</span>
+      <div class="banner-actions">
+        <button id="loadClipboardBtn" class="btn btn-xs btn-primary">Yeni Mail Olarak Yükle</button>
+        <button id="dismissClipboardBtn" class="btn btn-xs btn-ghost">Yoksay</button>
+      </div>
+    </div>
+
+    <!-- Missing API Key Banner -->
+    <div id="apiKeyBanner" class="banner banner-warn hidden">
+      <span>Gemini API anahtarı henüz kayıtlı değil. AI Mail Asistanı için Ayarlar sekmesinden anahtarınızı girin.</span>
+      <button id="goToSettingsBtn" class="btn btn-xs btn-primary">Ayarlar'a Git</button>
+    </div>
+
+    <!-- Main Content -->
+    <main class="content">
+      <!-- TAB 1: AI MAIL ASSISTANT -->
+      <section id="tab-ai" class="tab-panel active">
+        <div class="submode-bar">
+          <div class="segmented">
+            <button class="seg-btn active" data-submode="incoming">Gelen Maili Çevir &amp; Yanıtla</button>
+            <button class="seg-btn" data-submode="compose">Türkçeden Yeni İş Maili Yaz</button>
+          </div>
+          <div class="privacy-pill" title="Posta kutunuza erişilmez; yalnızca onayladığınız metin Gemini'ye gider.">
+            <span class="dot"></span>
+            <span>Sadece seçili metin gönderilir</span>
+          </div>
+        </div>
+
+        <div class="ai-grid">
+          <!-- Left: Editable Pre-send Input -->
+          <div class="pane input-pane">
+            <div class="pane-toolbar">
+              <span id="aiInputTitle" class="pane-title">Gelen E-posta (Göndermeden önce düzenleyebilirsiniz)</span>
+              <div class="tool-group">
+                <button id="aiPasteBtn" class="btn btn-xs btn-ghost" title="Panodan Yapıştır">Panodan Yapıştır</button>
+                <button id="aiOcrBtn" class="btn btn-xs btn-ghost" title="Ekrandan Alan Seç (OCR)">Alan Seç (OCR)</button>
+                <button id="aiResetBtn" class="btn btn-xs btn-ghost" title="Oturumu Temizle">Yeni Mail</button>
+              </div>
+            </div>
+
+            <div class="controls-row">
+              <label id="translationLangWrap" class="field-inline">
+                <span>Çeviri Dili</span>
+                <select id="aiTranslationLang">
+                  <option value="tr" selected>Türkçe</option>
+                  <option value="en">İngilizce</option>
+                  <option value="de">Almanca</option>
+                  <option value="fr">Fransızca</option>
+                  <option value="es">İspanyolca</option>
+                  <option value="it">İtalyanca</option>
+                  <option value="ru">Rusça</option>
+                </select>
+              </label>
+
+              <label id="replyLangWrap" class="field-inline">
+                <span id="replyLangLabel">Yanıt Dili</span>
+                <select id="aiReplyLang">
+                  <option value="auto" selected>Otomatik (Gelen Mail)</option>
+                  <option value="en">İngilizce</option>
+                  <option value="de">Almanca</option>
+                  <option value="fr">Fransızca</option>
+                  <option value="es">İspanyolca</option>
+                  <option value="it">İtalyanca</option>
+                  <option value="ru">Rusça</option>
+                  <option value="ar">Arapça</option>
+                  <option value="zh">Çince</option>
+                  <option value="nl">Felemenkçe</option>
+                  <option value="pt">Portekizce</option>
+                  <option value="tr">Türkçe</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="tone-row">
+              <span class="tone-label">Üslup:</span>
+              <div class="tone-group" id="aiToneGroup">
+                <button class="tone-btn" data-tone="formal">Resmi</button>
+                <button class="tone-btn active" data-tone="professional">Profesyonel</button>
+                <button class="tone-btn" data-tone="concise">Kısa &amp; Net</button>
+                <button class="tone-btn" data-tone="casual">Samimi</button>
+              </div>
+            </div>
+
+            <textarea
+              id="aiInputText"
+              class="editor"
+              maxlength="25000"
+              placeholder="Outlook'tan kopyaladığınız yabancı maili buraya yapıştırın (veya Ctrl+C sonrası kısayolla açın). İsterseniz imza veya hassas satırları sildikten sonra gönderin..."
+            ></textarea>
+
+            <div class="pane-footer">
+              <span id="aiCharCount" class="muted-meta">0 / 25.000 karakter</span>
+              <button id="aiSubmitBtn" class="btn btn-primary">
+                <span id="aiSubmitLabel">Çevir &amp; Örnek Yanıt Oluştur</span>
+                <kbd>Ctrl+Enter</kbd>
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Results + Revision Chat -->
+          <div class="pane output-pane">
+            <div id="aiErrorBox" class="error-box hidden"></div>
+
+            <div id="aiEmptyState" class="empty-state">
+              <div class="empty-title">Hazır</div>
+              <p>Sol kutuya maili yapıştırıp <strong>Çevir &amp; Örnek Yanıt Oluştur</strong> butonuna basın.</p>
+              <p class="muted-meta">Önerilen yanıt beğenilmezse alttaki sohbet kutusundan Türkçe revizyon isteyebilirsiniz.</p>
+            </div>
+
+            <div id="aiResults" class="results-stack hidden">
+              <!-- Card 1: Incoming Translation (Mode 1) -->
+              <article id="translationCard" class="result-card">
+                <div class="card-head">
+                  <div class="card-title-row">
+                    <h3>Gelen Mail Çevirisi</h3>
+                    <span id="detectedLangBadge" class="badge badge-accent hidden"></span>
+                  </div>
+                  <button id="copyTranslationBtn" class="btn btn-xs btn-ghost">Kopyala</button>
+                </div>
+                <div id="translationBody" class="card-body selectable"></div>
+              </article>
+
+              <!-- Subject Card (Mode 2 Only) -->
+              <article id="subjectCard" class="result-card hidden">
+                <div class="card-head">
+                  <h3>Önerilen Konu (Subject)</h3>
+                  <button id="copySubjectBtn" class="btn btn-xs btn-ghost">Konuyu Kopyala</button>
+                </div>
+                <div id="subjectForeignBody" class="card-body selectable subject-text"></div>
+                <div class="verify-box">
+                  <span class="verify-label">Türkçe Karşılığı:</span>
+                  <span id="subjectVerifyBody" class="selectable"></span>
+                </div>
+              </article>
+
+              <!-- Card 2: Suggested Reply / Composed Body -->
+              <article id="replyCard" class="result-card result-card-primary">
+                <div class="card-head">
+                  <h3 id="replyCardTitle">Önerilen İş Yanıtı</h3>
+                  <div class="tool-group">
+                    <button id="copyReplyBtn" class="btn btn-xs btn-primary">Yanıtı Kopyala</button>
+                    <button id="copyReplyHideBtn" class="btn btn-xs btn-ghost">Kopyala &amp; Gizle</button>
+                  </div>
+                </div>
+                <div id="replyForeignBody" class="card-body selectable"></div>
+
+                <div class="quick-chips">
+                  <button class="chip-btn" data-quick-revise="Daha resmi ve kurumsal bir üslupla yeniden yaz.">Daha Resmi</button>
+                  <button class="chip-btn" data-quick-revise="Anlamı koruyarak daha kısa ve net hale getir.">Daha Kısa</button>
+                  <button class="chip-btn" data-quick-revise="Daha sıcak ve samimi ama profesyonel bir tonda yaz.">Daha Samimi</button>
+                </div>
+
+                <div class="verify-box">
+                  <div id="replyVerifyLabel" class="verify-label">Anlam Doğrulama (Türkçe Karşılığı):</div>
+                  <div id="replyVerifyBody" class="selectable verify-text"></div>
+                </div>
+              </article>
+            </div>
+
+            <!-- Revision Chat Box -->
+            <div id="revisionBar" class="revision-bar hidden">
+              <div id="revisionHistory" class="revision-history"></div>
+              <div class="revision-input-row">
+                <input
+                  id="revisionInput"
+                  type="text"
+                  placeholder="Beğenmediniz mi? Düzenleme yazın: örn. Fiyatı 2.500 EUR yaz, teslimat 2 hafta de..."
+                >
+                <button id="revisionSendBtn" class="btn btn-primary btn-sm">Düzenle</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: FREE QUICK TRANSLATE + OCR -->
+      <section id="tab-quick" class="tab-panel">
+        <div class="quick-header">
+          <span class="badge badge-free">Ücretsiz Mod (API kullanmaz)</span>
+          <div class="lang-pair">
+            <select id="quickSourceLang">
+              <option value="auto" selected>Otomatik Algıla</option>
+              <option value="en">İngilizce</option>
+              <option value="de">Almanca</option>
+              <option value="fr">Fransızca</option>
+              <option value="es">İspanyolca</option>
+              <option value="it">İtalyanca</option>
+              <option value="ru">Rusça</option>
+              <option value="tr">Türkçe</option>
+            </select>
+            <button id="quickSwapBtn" class="icon-btn" title="Dilleri Değiştir">⇄</button>
+            <select id="quickTargetLang">
+              <option value="tr" selected>Türkçe</option>
+              <option value="en">İngilizce</option>
+              <option value="de">Almanca</option>
+              <option value="fr">Fransızca</option>
+              <option value="es">İspanyolca</option>
+              <option value="it">İtalyanca</option>
+              <option value="ru">Rusça</option>
+            </select>
+          </div>
+          <div class="tool-group">
+            <button id="quickPasteBtn" class="btn btn-xs btn-ghost">Panodan Yapıştır</button>
+            <button id="quickOcrBtn" class="btn btn-xs btn-primary">Alan Seç &amp; Çevir (OCR)</button>
+          </div>
+        </div>
+
+        <div class="quick-grid">
+          <div class="pane">
+            <textarea
+              id="quickSourceText"
+              class="editor"
+              placeholder="Hızlı ücretsiz çeviri için metin yazın veya 'Alan Seç & Çevir (OCR)' butonunu kullanın..."
+            ></textarea>
+            <div class="pane-footer">
+              <span id="quickDetectedBadge" class="muted-meta"></span>
+              <button id="quickTranslateBtn" class="btn btn-sm btn-primary">Çevir</button>
+            </div>
+          </div>
+
+          <div class="pane">
+            <div id="quickTargetText" class="quick-output selectable">Sonuç bekleniyor...</div>
+            <div class="pane-footer">
+              <span class="muted-meta">Kısayol: Ctrl+Enter Kopyala &amp; Gizle</span>
+              <div class="tool-group">
+                <button id="quickCopyBtn" class="btn btn-xs btn-ghost">Kopyala</button>
+                <button id="quickCopyHideBtn" class="btn btn-xs btn-primary">Kopyala &amp; Gizle</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: SETTINGS -->
+      <section id="tab-settings" class="tab-panel">
+        <div class="settings-scroll">
+          <div class="settings-card">
+            <h3>Gemini API Yapılandırması</h3>
+            <p class="muted-meta">API anahtarınız bilgisayarınızda Windows DPAPI (safeStorage) ile şifrelenerek saklanır; düz metin tutulmaz.</p>
+
+            <div class="form-grid">
+              <label class="form-field">
+                <span>Gemini API Anahtarı</span>
+                <div class="input-with-btn">
+                  <input id="setApiKey" type="password" autocomplete="off" placeholder="AIza... (değiştirmek için yeni anahtar girin)">
+                  <button id="toggleApiKeyVisBtn" class="btn btn-xs btn-ghost" type="button">Göster</button>
+                  <button id="clearApiKeyBtn" class="btn btn-xs btn-danger" type="button">Sil</button>
+                </div>
+                <span id="apiKeyStatusText" class="status-meta"></span>
+              </label>
+
+              <div class="form-row-2">
+                <label class="form-field">
+                  <span>Gemini Modeli</span>
+                  <select id="setModel">
+                    <option value="gemini-2.5-flash">gemini-2.5-flash (Hızlı &amp; Ekonomik — Önerilen)</option>
+                    <option value="gemini-2.5-pro">gemini-2.5-pro (En Yüksek Kalite)</option>
+                    <option value="custom">Özel Model Adı...</option>
+                  </select>
+                </label>
+
+                <label id="customModelWrap" class="form-field hidden">
+                  <span>Özel Model Adı</span>
+                  <input id="setCustomModel" type="text" placeholder="örn. gemini-2.5-flash-lite">
+                </label>
+              </div>
+
+              <div class="test-row">
+                <button id="testApiBtn" class="btn btn-sm btn-ghost" type="button">Bağlantıyı Test Et</button>
+                <span id="testApiResult" class="status-meta"></span>
+              </div>
+
+              <label class="form-field">
+                <span>Opsiyonel İmza / Firma Bilgisi</span>
+                <input id="setSignature" type="text" placeholder="örn. İlker Tuna — ABC Dış Ticaret (boş bırakılabilir)">
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h3>Kısayol ve Davranış</h3>
+            <div class="form-grid">
+              <label class="form-field">
+                <span>Global Açma Kısayolu</span>
+                <select id="setShortcut">
+                  <option value="CommandOrControl+Shift+T">Ctrl + Shift + T (Varsayılan — Eski Lumina ile çakışmaz)</option>
+                  <option value="CommandOrControl+Alt+T">Ctrl + Alt + T (Eski Lumina kapalıysa)</option>
+                  <option value="CommandOrControl+Shift+M">Ctrl + Shift + M</option>
+                </select>
+                <span id="shortcutWarningText" class="status-meta status-err hidden"></span>
+              </label>
+
+              <label class="checkbox-field">
+                <input id="setOpenAtLogin" type="checkbox">
+                <span>Windows başlangıcında otomatik çalıştır (Eski Lumina kapatıldığında açmanız önerilir)</span>
+              </label>
+
+              <label class="checkbox-field">
+                <input id="setAutoFillClipboard" type="checkbox">
+                <span>Kısayolla açıldığında panodaki yeni metni önizleme kutusuna doldur (API'ye otomatik göndermez)</span>
+              </label>
+
+              <label class="checkbox-field">
+                <input id="setHideQuickOnBlur" type="checkbox">
+                <span>Yalnızca Hızlı Çeviri sekmesinde pencere dışına tıklanınca gizle</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-actions">
+            <button id="saveSettingsBtn" class="btn btn-primary">Ayarları Kaydet</button>
+            <span id="saveSettingsStatus" class="status-meta"></span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Status Bar -->
+    <footer class="statusbar">
+      <span id="shortcutHint">Aç: Ctrl+Shift+T</span>
+      <span id="toastText" class="toast-text"></span>
+      <span>Esc: Tepsiye Gizle</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
