@@ -21,3 +21,12 @@ test('renderer JS never uses innerHTML or require() and only talks through windo
     assert.equal(/require\s*\(/i.test(js), false, `${file} must not call require()`);
   }
 });
+
+test('app.js protects unsaved drafts, strips IPC error prefixes, guards stale requests, and routes Ctrl+Enter in revisionInput', () => {
+  const appJs = fs.readFileSync(path.join(rendererDir, 'app.js'), 'utf8');
+  assert.match(appJs, /Error invoking remote method/, 'must strip Electron IPC error prefix');
+  assert.match(appJs, /aiRequestId/, 'must guard against stale async Gemini responses');
+  assert.match(appJs, /quickRequestId/, 'must guard against stale async Quick Translate responses');
+  assert.match(appJs, /document\.activeElement\s*===\s*revisionInput/, 'Ctrl+Enter inside revisionInput must submit revision');
+  assert.match(appJs, /userEditedInput/, 'must protect unsaved user-edited drafts from clipboard overwrite');
+});

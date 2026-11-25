@@ -19,6 +19,7 @@ const { createGoogleTranslateService } = require('./google-translate-service');
 const { evaluateClipboardIntake } = require('./clipboard-session');
 const { createShortcutManager } = require('./shortcut-manager');
 const { createOcrService } = require('./ocr-service');
+const { selectDisplaySource } = require('./display-matcher');
 
 const IS_SMOKE_TEST = process.argv.includes('--smoke-test');
 
@@ -41,6 +42,7 @@ let hasActiveSession = false;
 let lastKnownClipboard = '';
 let pendingSnipTargetTab = 'ai';
 let isQuitting = false;
+let startupShortcutWarning = null;
 
 let configStore = null;
 let geminiService = null;
@@ -218,8 +220,7 @@ async function startSnipping(targetTab = 'ai') {
     });
 
     const allDisplays = screen.getAllDisplays();
-    const displayIndex = allDisplays.findIndex((d) => d.id === currentDisplay.id);
-    const chosenSource = sources[displayIndex] || sources[0];
+    const chosenSource = selectDisplaySource(sources, allDisplays, currentDisplay);
     if (!chosenSource) {
       throw new Error('Ekran görüntüsü kaynağı alınamadı.');
     }
@@ -269,7 +270,8 @@ function registerIpcHandlers() {
   ipcMain.handle('settings:get', () => {
     return {
       settings: configStore.getPublicSettings(),
-      activeShortcut: shortcutManager.getActiveShortcut()
+      activeShortcut: shortcutManager.getActiveShortcut(),
+      shortcutWarning: startupShortcutWarning
     };
   });
 
@@ -278,11 +280,17 @@ function registerIpcHandlers() {
     let shortcutWarning = null;
     const sanitizedPatch = { ...patch };
 
-    if (typeof patch.shortcut === 'string' && patch.shortcut.trim() && patch.shortcut !== current.shortcut) {
+    if (
+      typeof patch.shortcut === 'string' &&
+      patch.shortcut.trim() &&
+      patch.shortcut !== shortcutManager.getActiveShortcut()
+    ) {
       const reg = shortcutManager.register(patch.shortcut, toggleWindow);
       if (!reg.ok) {
         shortcutWarning = reg.error;
         sanitizedPatch.shortcut = reg.activeShortcut || current.shortcut;
+      } else {
+        startupShortcutWarning = null;
       }
     }
 
@@ -475,14 +483,18 @@ app.whenReady().then(() => {
   geminiService = createGeminiService();
   googleTranslateService = createGoogleTranslateService();
   shortcutManager = createShortcutManager({ globalShortcut });
-  ocrService = createOcrService({ cachePath: path.join(userData, 'tessdata') });
+  ocrService = createOcrService({
+    cachePath: path.join(userData, 'tessdata'),
+    isPackaged: app.isPackaged
+  });
 
   registerIpcHandlers();
   createWindow();
 
   const settings = configStore.getPublicSettings();
   if (!IS_SMOKE_TEST) {
-    shortcutManager.register(settings.shortcut, toggleWindow);
+    const reg = shortcutManager.register(settings.shortcut, toggleWindow);
+    startupShortcutWarning = reg.ok ? null : reg.error;
     tray = new Tray(buildTrayIcon());
     updateTrayMenu();
     tray.on('click', () => toggleWindow());

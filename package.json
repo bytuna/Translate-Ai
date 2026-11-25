@@ -20,6 +20,10 @@
     "appId": "com.bytuna.lumina-ai-mail",
     "productName": "Lumina AI Mail",
     "asar": true,
+    "asarUnpack": [
+      "node_modules/tesseract.js/**/*",
+      "node_modules/tesseract.js-core/**/*"
+    ],
     "files": [
       "src/**/*",
       "package.json"

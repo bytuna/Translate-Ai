@@ -12,9 +12,18 @@
     currentDraft: null,
     revisionHistory: [],
     pendingClipboard: null,
+    userEditedInput: false,
+    aiRequestId: 0,
+    quickRequestId: 0,
     aiBusy: false,
     quickDebounce: null
   };
+
+  function cleanErrorMessage(err, fallback) {
+    const raw = err && err.message ? String(err.message) : '';
+    const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
+    return cleaned || fallback;
+  }
 
   // DOM helpers
   const $ = (id) => document.getElementById(id);
@@ -115,7 +124,12 @@
   }
 
   function updateSessionState() {
-    const active = Boolean(state.currentDraft || state.revisionHistory.length > 0);
+    const active = Boolean(
+      state.currentDraft ||
+      state.revisionHistory.length > 0 ||
+      state.userEditedInput ||
+      (state.submode === 'compose' && aiInputText.value.trim().length > 0)
+    );
     api.window.notifySessionState(active);
   }
 
@@ -195,8 +209,10 @@
   }
 
   function resetResultsOnly() {
+    state.aiRequestId += 1;
     state.currentDraft = null;
     state.revisionHistory = [];
+    setAiBusy(false);
     setAiError('');
     aiResults.classList.add('hidden');
     revisionBar.classList.add('hidden');
@@ -208,6 +224,7 @@
   function resetFullSession() {
     aiInputText.value = '';
     state.currentOriginalInput = '';
+    state.userEditedInput = false;
     updateCharCount();
     hideClipboardBanner();
     resetResultsOnly();
@@ -277,21 +294,24 @@
       return;
     }
 
+    const reqId = ++state.aiRequestId;
+    const reqSubmode = state.submode;
     setAiError('');
-    setAiBusy(true, state.submode === 'incoming' ? 'Çevriliyor ve yanıt hazırlanıyor...' : 'İş maili hazırlanıyor...');
+    setAiBusy(true, reqSubmode === 'incoming' ? 'Çevriliyor ve yanıt hazırlanıyor...' : 'İş maili hazırlanıyor...');
 
     try {
       state.currentOriginalInput = text;
       state.revisionHistory = [];
       renderRevisionHistory();
 
-      if (state.submode === 'incoming') {
+      if (reqSubmode === 'incoming') {
         const res = await api.ai.analyzeEmail({
           emailText: text,
           translationLang: aiTranslationLang.value,
           replyLang: aiReplyLang.value,
           tone: state.tone
         });
+        if (reqId !== state.aiRequestId) return;
         state.currentDraft = res;
         renderResults(res, false);
       } else {
@@ -300,13 +320,15 @@
           targetLang: aiReplyLang.value === 'auto' ? 'en' : aiReplyLang.value,
           tone: state.tone
         });
+        if (reqId !== state.aiRequestId) return;
         state.currentDraft = res;
         renderResults(res, true);
       }
     } catch (err) {
-      setAiError(err && err.message ? err.message : 'Gemini isteği sırasında bir hata oluştu.');
+      if (reqId !== state.aiRequestId) return;
+      setAiError(cleanErrorMessage(err, 'Gemini isteği sırasında bir hata oluştu.'));
     } finally {
-      setAiBusy(false);
+      if (reqId === state.aiRequestId) setAiBusy(false);
     }
   }
 
@@ -315,11 +337,12 @@
     const instruction = String(instructionText || '').trim();
     if (!instruction) return;
 
+    const reqId = ++state.aiRequestId;
+    const isCompose = state.submode === 'compose';
     setAiError('');
     setAiBusy(true, 'Yanıt düzenleniyor...');
 
     try {
-      const isCompose = state.submode === 'compose';
       const effectiveReplyLang = isCompose
         ? aiReplyLang.value === 'auto' ? 'en' : aiReplyLang.value
         : aiReplyLang.value === 'auto'
@@ -336,6 +359,7 @@
         replyLang: effectiveReplyLang,
         tone: state.tone
       });
+      if (reqId !== state.aiRequestId) return;
 
       state.revisionHistory.push({ role: 'user', text: instruction });
       state.currentDraft = { ...state.currentDraft, ...updated };
@@ -344,14 +368,16 @@
       revisionInput.value = '';
       showToast('Yanıt güncellendi');
     } catch (err) {
-      setAiError(err && err.message ? err.message : 'Düzenleme sırasında hata oluştu.');
+      if (reqId !== state.aiRequestId) return;
+      setAiError(cleanErrorMessage(err, 'Düzenleme sırasında hata oluştu.'));
     } finally {
-      setAiBusy(false);
+      if (reqId === state.aiRequestId) setAiBusy(false);
     }
   }
 
   // Quick Translate (Free)
   async function runQuickTranslate() {
+    const reqId = ++state.quickRequestId;
     const text = quickSourceText.value.trim();
     if (!text) {
       quickTargetText.textContent = 'Sonuç bekleniyor...';
@@ -366,10 +392,12 @@
         sourceLang: quickSourceLang.value,
         targetLang: quickTargetLang.value
       });
+      if (reqId !== state.quickRequestId) return;
       quickTargetText.textContent = res.translatedText || '';
       quickDetectedBadge.textContent = res.detectedLang ? `Algılanan dil: ${res.detectedLang.toUpperCase()}` : '';
     } catch (err) {
-      quickTargetText.textContent = err && err.message ? err.message : 'Çeviri hatası oluştu.';
+      if (reqId !== state.quickRequestId) return;
+      quickTargetText.textContent = cleanErrorMessage(err, 'Çeviri hatası oluştu.');
     }
   }
 
@@ -406,6 +434,11 @@
   async function init() {
     const res = await api.settings.get();
     applySettingsToUi(res.settings, res.activeShortcut);
+    if (res.shortcutWarning) {
+      shortcutWarningText.textContent = res.shortcutWarning;
+      shortcutWarningText.classList.remove('hidden');
+      showToast(res.shortcutWarning);
+    }
     if (res.settings.translationLang) aiTranslationLang.value = res.settings.translationLang;
     if (res.settings.replyLang) aiReplyLang.value = res.settings.replyLang;
     if (res.settings.defaultTone) {
@@ -439,14 +472,20 @@
     switchTab('ai');
     switchSubmode('incoming');
     aiInputText.value = state.pendingClipboard.text;
+    state.userEditedInput = false;
     updateCharCount();
+    updateSessionState();
     hideClipboardBanner();
     showToast('Panodaki metin yüklendi — göndermek için butona basın');
   });
 
   dismissClipboardBtn.addEventListener('click', hideClipboardBanner);
 
-  aiInputText.addEventListener('input', updateCharCount);
+  aiInputText.addEventListener('input', () => {
+    state.userEditedInput = aiInputText.value.trim().length > 0;
+    updateCharCount();
+    updateSessionState();
+  });
   aiSubmitBtn.addEventListener('click', runAiPrimary);
   aiResetBtn.addEventListener('click', resetFullSession);
 
@@ -457,7 +496,9 @@
       return;
     }
     aiInputText.value = text.trim().slice(0, 25000);
+    state.userEditedInput = true;
     updateCharCount();
+    updateSessionState();
     hideClipboardBanner();
     showToast('Panodan yapıştırıldı');
   });
@@ -571,7 +612,7 @@
       testApiResult.textContent = `Bağlantı başarılı (${res.model}) ✓`;
       testApiResult.className = 'status-meta status-ok';
     } catch (err) {
-      testApiResult.textContent = err && err.message ? err.message : 'Bağlantı başarısız.';
+      testApiResult.textContent = cleanErrorMessage(err, 'Bağlantı başarısız.');
       testApiResult.className = 'status-meta status-err';
     } finally {
       testApiBtn.disabled = false;
@@ -606,7 +647,7 @@
       saveSettingsStatus.className = 'status-meta status-ok';
       showToast('Ayarlar kaydedildi');
     } catch (err) {
-      saveSettingsStatus.textContent = err && err.message ? err.message : 'Ayarlar kaydedilemedi.';
+      saveSettingsStatus.textContent = cleanErrorMessage(err, 'Ayarlar kaydedilemedi.');
       saveSettingsStatus.className = 'status-meta status-err';
     }
   });
@@ -620,6 +661,10 @@
     if (e.key === 'Enter' && e.ctrlKey) {
       e.preventDefault();
       if (state.activeTab === 'ai') {
+        if (document.activeElement === revisionInput) {
+          runRevision(revisionInput.value);
+          return;
+        }
         runAiPrimary();
       } else if (state.activeTab === 'quick') {
         const txt = quickTargetText.textContent.trim();

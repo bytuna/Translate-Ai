@@ -25,3 +25,21 @@ test('reverts to previous shortcut and returns Turkish warning on conflict', () 
   assert.match(conflict.error, /başka bir uygulama|kullanımda/i);
   assert.equal(registered.has('CommandOrControl+Shift+T'), true);
 });
+
+test('recovers same shortcut once initial startup conflict is cleared', () => {
+  let occupied = true;
+  const mockGlobalShortcut = {
+    register: () => !occupied,
+    unregister: () => {},
+    unregisterAll: () => {}
+  };
+  const mgr = createShortcutManager({ globalShortcut: mockGlobalShortcut });
+  const boot = mgr.register('CommandOrControl+Shift+T', () => {});
+  assert.equal(boot.ok, false);
+  assert.equal(boot.activeShortcut, null);
+
+  occupied = false;
+  const retry = mgr.register('CommandOrControl+Shift+T', () => {});
+  assert.equal(retry.ok, true);
+  assert.equal(retry.activeShortcut, 'CommandOrControl+Shift+T');
+});

@@ -51,6 +51,29 @@ test('unwraps markdown-fenced JSON responses cleanly', () => {
   assert.equal(parsed.translation, 'Merhaba');
 });
 
+test('wraps malformed braced JSON and non-object JSON in clear Turkish error', () => {
+  assert.throws(
+    () => parseJsonResponse('prefix {not valid json} suffix'),
+    /JSON formatında ayrıştırılamadı/i
+  );
+  assert.throws(
+    () => parseJsonResponse('[]'),
+    /JSON formatında ayrıştırılamadı/i
+  );
+});
+
+test('maps offline fetch network errors to clear Turkish message', async () => {
+  const svcNet = createGeminiService({
+    fetchImpl: async () => {
+      throw new TypeError('fetch failed');
+    }
+  });
+  await assert.rejects(
+    () => svcNet.testConnection({ apiKey: 'AIza-KEY', model: 'gemini-2.5-flash' }),
+    /ağ|internet|bağlanılamadı/i
+  );
+});
+
 test('maps 401/403/429/safety/timeout errors to clear Turkish messages without leaking API key', async () => {
   const secretKey = 'AIza-SUPER-SECRET-999';
   const makeErrorFetch = (status, body) => async () => ({

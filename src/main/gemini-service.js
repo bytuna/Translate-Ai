@@ -22,16 +22,26 @@ function parseJsonResponse(rawText) {
   if (fenceMatch) {
     cleaned = fenceMatch[1].trim();
   }
+  let parsed;
   try {
-    return JSON.parse(cleaned);
+    parsed = JSON.parse(cleaned);
   } catch {
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace > firstBrace) {
-      return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+      try {
+        parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+      } catch {
+        throw new Error('Gemini yanıtı JSON formatında ayrıştırılamadı.');
+      }
+    } else {
+      throw new Error('Gemini yanıtı JSON formatında ayrıştırılamadı.');
     }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Gemini yanıtı JSON formatında ayrıştırılamadı.');
   }
+  return parsed;
 }
 
 function classifyHttpError(status, detail, apiKey) {
@@ -125,6 +135,13 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
     } catch (err) {
       if (err && err.name === 'AbortError') {
         throw new Error('Gemini API isteği zaman aşımına uğradı. İnternet bağlantınızı kontrol edip tekrar deneyin.');
+      }
+      if (
+        err &&
+        (err.name === 'TypeError' ||
+          /fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|network/i.test(String(err.message || '')))
+      ) {
+        throw new Error('Gemini sunucusuna bağlanılamadı. İnternet veya ağ bağlantınızı kontrol edip tekrar deneyin.');
       }
       if (err instanceof Error) {
         err.message = scrubSecret(err.message, cleanKey);

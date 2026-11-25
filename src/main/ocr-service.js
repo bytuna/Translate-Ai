@@ -1,7 +1,20 @@
 const fs = require('node:fs');
+const path = require('node:path');
 const { createWorker } = require('tesseract.js');
 
-function createOcrService({ cachePath }) {
+function resolveUnpackedPath(moduleRequest) {
+  try {
+    const resolved = require.resolve(moduleRequest);
+    if (resolved.includes('app.asar') && !resolved.includes('app.asar.unpacked')) {
+      return resolved.replace('app.asar', 'app.asar.unpacked');
+    }
+    return resolved;
+  } catch {
+    return undefined;
+  }
+}
+
+function createOcrService({ cachePath, createWorkerImpl = createWorker, isPackaged = false } = {}) {
   let workerPromise = null;
 
   async function getWorker() {
@@ -9,7 +22,40 @@ function createOcrService({ cachePath }) {
       if (cachePath) {
         fs.mkdirSync(cachePath, { recursive: true });
       }
-      workerPromise = createWorker('eng+tur', 1, cachePath ? { cachePath } : {});
+
+      let rejectError = null;
+      const workerErrorPromise = new Promise((_resolve, reject) => {
+        rejectError = reject;
+      });
+
+      const opts = {
+        errorHandler: (err) => {
+          if (rejectError) {
+            rejectError(err instanceof Error ? err : new Error(String(err || 'OCR hatası')));
+          }
+        }
+      };
+
+      if (cachePath) {
+        opts.cachePath = cachePath;
+      }
+
+      if (isPackaged) {
+        const workerPath = resolveUnpackedPath('tesseract.js/src/worker-script/node/index.js');
+        const corePath = resolveUnpackedPath('tesseract.js-core/tesseract-core.wasm.js');
+        if (workerPath) opts.workerPath = workerPath;
+        if (corePath) opts.corePath = path.dirname(corePath);
+      }
+
+      workerPromise = Promise.race([
+        Promise.resolve().then(() => createWorkerImpl('eng+tur', 1, opts)),
+        workerErrorPromise
+      ]).catch((err) => {
+        workerPromise = null;
+        throw new Error(
+          `OCR motoru başlatılamadı (ilk kullanımda internet bağlantısı gerekebilir): ${err && err.message ? err.message : 'Bilinmeyen hata'}`
+        );
+      });
     }
     return workerPromise;
   }
@@ -29,7 +75,9 @@ function createOcrService({ cachePath }) {
     if (workerPromise) {
       try {
         const worker = await workerPromise;
-        await worker.terminate();
+        if (worker && typeof worker.terminate === 'function') {
+          await worker.terminate();
+        }
       } catch {
         // Ignore cleanup errors
       } finally {
