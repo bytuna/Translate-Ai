@@ -26,5 +26,6 @@ desktop.ini
 .vscode/
 .idea/
 
-# Local agent scratch
+# Local agent scratch & personal notes
 .superpowers/
+Kurulum-Notu.txt
