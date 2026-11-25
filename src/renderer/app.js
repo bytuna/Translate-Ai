@@ -606,7 +606,7 @@
     showToast('API anahtarı silindi');
   });
 
-  function populateModelOptions(models, preferCurrent) {
+  function populateModelOptions(models, preferCurrent, excludeId = '') {
     const current = setModel.value;
     while (setModel.firstChild) {
       setModel.removeChild(setModel.firstChild);
@@ -622,17 +622,16 @@
     customOpt.textContent = 'Özel Model Adı...';
     setModel.appendChild(customOpt);
 
-    if (preferCurrent && models.some((m) => m.id === current)) {
+    if (preferCurrent && current !== excludeId && models.some((m) => m.id === current)) {
       setModel.value = current;
     } else {
-      const preferred =
-        models.find((m) => /flash/i.test(m.id) && !/lite|8b|tts|image|audio/i.test(m.id)) || models[0];
+      const preferred = models.find((m) => m.id !== excludeId) || models[0];
       if (preferred) setModel.value = preferred.id;
     }
     customModelWrap.classList.toggle('hidden', setModel.value !== 'custom');
   }
 
-  async function fetchAvailableModels(silent = false) {
+  async function fetchAvailableModels(silent = false, excludeId = '') {
     fetchModelsBtn.disabled = true;
     if (!silent) {
       testApiResult.textContent = 'API anahtarınızdaki aktif modeller getiriliyor...';
@@ -649,9 +648,9 @@
         }
         return [];
       }
-      populateModelOptions(models, !silent);
+      populateModelOptions(models, false, excludeId);
       if (!silent) {
-        testApiResult.textContent = `${models.length} aktif model yüklendi ✓ Seçip "Bağlantıyı Test Et" veya "Ayarları Kaydet" deyin.`;
+        testApiResult.textContent = `${models.length} aktif model yüklendi ("${setModel.value}" seçildi) ✓ Şimdi "Bağlantıyı Test Et" veya "Ayarları Kaydet" deyin.`;
         testApiResult.className = 'status-meta status-ok';
       }
       return models;
@@ -676,6 +675,7 @@
     testApiBtn.disabled = true;
     testApiResult.textContent = 'Test ediliyor...';
     testApiResult.className = 'status-meta';
+    const triedModel = setModel.value === 'custom' ? setCustomModel.value.trim() : setModel.value;
     try {
       const res = await api.ai.testConnection({
         apiKey: setApiKey.value.trim() || undefined,
@@ -687,9 +687,9 @@
     } catch (err) {
       const msg = cleanErrorMessage(err, 'Bağlantı başarısız.');
       if (/bulunamadı/i.test(msg)) {
-        const models = await fetchAvailableModels(true);
+        const models = await fetchAvailableModels(true, triedModel);
         if (models.length > 0) {
-          testApiResult.textContent = `Önceki model bulunamadı; anahtarınızdaki ${models.length} aktif model listeye yüklendi ("${setModel.value}" seçildi). Şimdi tekrar "Bağlantıyı Test Et" deyin.`;
+          testApiResult.textContent = `"${triedModel}" eski/desteklenmiyor; anahtarınızdaki güncel modeller yüklendi ve "${setModel.value}" seçildi. Şimdi tekrar "Bağlantıyı Test Et" ve ardından "Ayarları Kaydet" deyin.`;
           testApiResult.className = 'status-meta status-err';
           return;
         }

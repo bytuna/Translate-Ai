@@ -74,6 +74,29 @@ function classifyHttpError(status, detail, apiKey, modelName = '') {
   return new Error(`Gemini API hatası (HTTP ${status})${safeDetail ? `: ${safeDetail.slice(0, 180)}` : ''}`);
 }
 
+function rankGeminiModel(id) {
+  const lower = String(id || '').toLowerCase();
+  let score = 0;
+  if (!lower.startsWith('gemini-')) score -= 5000;
+  if (/(image|tts|audio|robotics|computer-use|deep-research|customtools|live|vision|exp-)/.test(lower)) {
+    score -= 10000;
+  }
+  const verMatch = lower.match(/^gemini-(\d+)(?:\.(\d+))?/);
+  if (verMatch) {
+    const major = Number(verMatch[1]) || 0;
+    const minor = Number(verMatch[2]) || 0;
+    score += major * 1000 + minor * 10;
+  }
+  if (/flash/.test(lower) && !/lite|8b/.test(lower)) {
+    score += 150;
+  } else if (/flash-lite/.test(lower)) {
+    score += 120;
+  } else if (/pro/.test(lower)) {
+    score += 100;
+  }
+  return score;
+}
+
 function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   async function generateStructured({ apiKey, model = 'gemini-2.5-flash', systemInstruction, userPrompt, responseSchema }) {
     if (!apiKey || !String(apiKey).trim()) {
@@ -270,7 +293,8 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
         .map((m) => ({
           id: m.name.replace(/^models\//i, ''),
           displayName: m.displayName || m.name.replace(/^models\//i, '')
-        }));
+        }))
+        .sort((a, b) => rankGeminiModel(b.id) - rankGeminiModel(a.id));
     } catch (err) {
       if (err && err.name === 'AbortError') {
         throw new Error('Model listesi alınırken zaman aşımı oluştu. İnternet bağlantınızı kontrol edin.');

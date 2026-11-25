@@ -180,3 +180,25 @@ test('HTTP 404 error includes model name and sanitized Google error detail', asy
     (err) => err.message.includes('gemini-old') && err.message.includes('not found')
   );
 });
+
+test('listModels ranks newest Gemini text models ahead of older 2.x and image/tts variants', async () => {
+  const svc = createGeminiService({
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [
+          { name: 'models/gemini-2.0-flash', displayName: 'Gemini 2.0 Flash', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/gemini-3.1-flash-image-preview', displayName: 'Gemini 3.1 Image', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/gemini-3-flash-preview', displayName: 'Gemini 3 Flash', supportedGenerationMethods: ['generateContent'] }
+        ]
+      })
+    })
+  });
+  const models = await svc.listModels({ apiKey: 'AIza-KEY' });
+  assert.equal(models[0].id, 'gemini-3-flash-preview');
+  assert.equal(models[1].id, 'gemini-3.1-pro-preview');
+  assert.equal(models[models.length - 1].id, 'gemini-3.1-flash-image-preview');
+});
