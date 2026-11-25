@@ -4,6 +4,8 @@ const path = require('node:path');
 const DEFAULT_SETTINGS = Object.freeze({
   model: 'gemini-2.5-flash',
   customModel: '',
+  autoFallback: true,
+  fallbackModel: 'auto',
   shortcut: 'CommandOrControl+Shift+T',
   openAtLogin: false,
   autoFillClipboard: true,

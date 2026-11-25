@@ -328,6 +328,8 @@ function registerIpcHandlers() {
     return geminiService.analyzeEmail({
       apiKey,
       model,
+      autoFallback: settings.autoFallback,
+      fallbackModel: settings.fallbackModel,
       emailText: params.emailText,
       translationLang: params.translationLang || settings.translationLang,
       replyLang: params.replyLang || settings.replyLang,
@@ -343,6 +345,8 @@ function registerIpcHandlers() {
     return geminiService.translateIncomingOnly({
       apiKey,
       model,
+      autoFallback: settings.autoFallback,
+      fallbackModel: settings.fallbackModel,
       emailText: params.emailText,
       translationLang: params.translationLang || settings.translationLang
     });
@@ -355,6 +359,8 @@ function registerIpcHandlers() {
     return geminiService.suggestReplyOnly({
       apiKey,
       model,
+      autoFallback: settings.autoFallback,
+      fallbackModel: settings.fallbackModel,
       emailText: params.emailText,
       translationLang: params.translationLang || settings.translationLang,
       replyLang: params.replyLang || settings.replyLang,
@@ -370,6 +376,8 @@ function registerIpcHandlers() {
     return geminiService.composeFromTurkish({
       apiKey,
       model,
+      autoFallback: settings.autoFallback,
+      fallbackModel: settings.fallbackModel,
       turkishDraft: params.turkishDraft,
       targetLang: params.targetLang || 'en',
       tone: params.tone || settings.defaultTone,
@@ -384,6 +392,8 @@ function registerIpcHandlers() {
     return geminiService.reviseReply({
       apiKey,
       model,
+      autoFallback: settings.autoFallback,
+      fallbackModel: settings.fallbackModel,
       mode: params.mode,
       originalInput: params.originalInput,
       currentDraft: params.currentDraft,
@@ -403,7 +413,9 @@ function registerIpcHandlers() {
       params.model === 'custom'
         ? (params.customModel || '').trim()
         : params.model || resolveActiveModel(settings);
-    return geminiService.testConnection({ apiKey, model });
+    const autoFallback = params.autoFallback !== undefined ? Boolean(params.autoFallback) : settings.autoFallback;
+    const fallbackModel = params.fallbackModel || settings.fallbackModel;
+    return geminiService.testConnection({ apiKey, model, autoFallback, fallbackModel });
   });
 
   ipcMain.handle('ai:list-models', async (_event, params = {}) => {

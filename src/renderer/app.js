@@ -101,6 +101,8 @@
   const fetchModelsBtn = $('fetchModelsBtn');
   const customModelWrap = $('customModelWrap');
   const setCustomModel = $('setCustomModel');
+  const setAutoFallback = $('setAutoFallback');
+  const setFallbackModel = $('setFallbackModel');
   const testApiBtn = $('testApiBtn');
   const testApiResult = $('testApiResult');
   const setSignature = $('setSignature');
@@ -355,7 +357,10 @@
         }
         state.currentDraft = combined;
         renderResults(combined, false);
-        showToast(`Tamamlandı (${((Date.now() - startMs) / 1000).toFixed(1)} sn)`);
+        const switchedNote = combined._switchedFrom && combined._usedModel
+          ? ` — otomatik geçiş: ${combined._usedModel}`
+          : '';
+        showToast(`Tamamlandı (${((Date.now() - startMs) / 1000).toFixed(1)} sn${switchedNote})`);
       } else {
         const res = await api.ai.composeFromTurkish({
           turkishDraft: text,
@@ -365,7 +370,10 @@
         if (reqId !== state.aiRequestId) return;
         state.currentDraft = res;
         renderResults(res, true);
-        showToast(`Hazır (${((Date.now() - startMs) / 1000).toFixed(1)} sn)`);
+        const switchedNote = res._switchedFrom && res._usedModel
+          ? ` — otomatik geçiş: ${res._usedModel}`
+          : '';
+        showToast(`Hazır (${((Date.now() - startMs) / 1000).toFixed(1)} sn${switchedNote})`);
       }
     } catch (err) {
       if (reqId !== state.aiRequestId) return;
@@ -473,6 +481,16 @@
     setModel.value = settings.model === 'custom' ? 'custom' : settings.model || 'gemini-2.5-flash';
     setCustomModel.value = settings.customModel || '';
     customModelWrap.classList.toggle('hidden', setModel.value !== 'custom');
+
+    setAutoFallback.checked = settings.autoFallback !== false;
+    const fbVal = settings.fallbackModel || 'auto';
+    if (fbVal !== 'auto' && !Array.from(setFallbackModel.options).some((o) => o.value === fbVal)) {
+      const opt = document.createElement('option');
+      opt.value = fbVal;
+      opt.textContent = fbVal;
+      setFallbackModel.appendChild(opt);
+    }
+    setFallbackModel.value = fbVal;
 
     setSignature.value = settings.signature || '';
     setShortcut.value = settings.shortcut || 'CommandOrControl+Shift+T';
@@ -664,6 +682,22 @@
     customOpt.textContent = 'Özel Model Adı...';
     setModel.appendChild(customOpt);
 
+    const prevFallback = setFallbackModel.value;
+    while (setFallbackModel.firstChild) {
+      setFallbackModel.removeChild(setFallbackModel.firstChild);
+    }
+    const autoFbOpt = document.createElement('option');
+    autoFbOpt.value = 'auto';
+    autoFbOpt.textContent = 'Otomatik (Aktif modellerden seç)';
+    setFallbackModel.appendChild(autoFbOpt);
+    models.forEach((m) => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.id;
+      setFallbackModel.appendChild(opt);
+    });
+    setFallbackModel.value = models.some((m) => m.id === prevFallback) ? prevFallback : 'auto';
+
     if (preferCurrent && current !== excludeId && models.some((m) => m.id === current)) {
       setModel.value = current;
     } else {
@@ -722,10 +756,13 @@
       const res = await api.ai.testConnection({
         apiKey: setApiKey.value.trim() || undefined,
         model: setModel.value,
-        customModel: setCustomModel.value.trim()
+        customModel: setCustomModel.value.trim(),
+        autoFallback: setAutoFallback.checked,
+        fallbackModel: setFallbackModel.value
       });
       const sec = typeof res.elapsedMs === 'number' ? ` — ${(res.elapsedMs / 1000).toFixed(1)} sn` : '';
-      testApiResult.textContent = `Bağlantı başarılı (${res.model}${sec}) ✓`;
+      const sw = res.switchedFrom ? ` ("${res.switchedFrom}" yoğundu, otomatik geçildi)` : '';
+      testApiResult.textContent = `Bağlantı başarılı (${res.model}${sec})${sw} ✓`;
       testApiResult.className = 'status-meta status-ok';
     } catch (err) {
       const msg = cleanErrorMessage(err, 'Bağlantı başarısız.');
@@ -752,6 +789,8 @@
       const patch = {
         model: setModel.value,
         customModel: setCustomModel.value.trim(),
+        autoFallback: setAutoFallback.checked,
+        fallbackModel: setFallbackModel.value,
         signature: setSignature.value.trim(),
         shortcut: setShortcut.value,
         openAtLogin: setOpenAtLogin.checked,

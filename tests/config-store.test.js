@@ -23,6 +23,8 @@ test('returns defaults and encrypts API key via safeStorage without plaintext on
   const store = createConfigStore({ filePath, safeStorage: makeMockSafeStorage(true) });
 
   assert.equal(store.getPublicSettings().model, DEFAULT_SETTINGS.model);
+  assert.equal(store.getPublicSettings().autoFallback, true);
+  assert.equal(store.getPublicSettings().fallbackModel, 'auto');
   assert.equal(store.getPublicSettings().shortcut, 'CommandOrControl+Shift+T');
   assert.equal(store.getPublicSettings().openAtLogin, false);
   assert.equal(store.getPublicSettings().hasApiKey, false);

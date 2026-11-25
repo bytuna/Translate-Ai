@@ -272,3 +272,94 @@ test('supports separate fast translateIncomingOnly and suggestReplyOnly for para
   assert.equal(trRes.translation, 'Fiyat listesini gönderir misiniz?');
   assert.equal(replyRes.suggestedReplyForeign, 'Dear Sir, please find attached...');
 });
+
+test('automatically switches to next available text model on 503/429/404 and reports _usedModel', async () => {
+  const calledUrls = [];
+  const svc = createGeminiService({
+    fetchImpl: async (url) => {
+      calledUrls.push(url);
+      if (url.includes('?pageSize=')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            models: [
+              { name: 'models/gemini-3.1-flash-lite-preview', displayName: '3.1 Flash Lite', supportedGenerationMethods: ['generateContent'] },
+              { name: 'models/gemini-3.1-flash-image-preview', displayName: 'Image Only', supportedGenerationMethods: ['generateContent'] },
+              { name: 'models/gemini-3-flash-preview', displayName: '3 Flash', supportedGenerationMethods: ['generateContent'] },
+              { name: 'models/gemini-2.5-flash', displayName: '2.5 Flash', supportedGenerationMethods: ['generateContent'] }
+            ]
+          })
+        };
+      }
+      if (url.includes('gemini-3.1-flash-lite-preview')) {
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ error: { message: 'This model is currently experiencing high demand.' } })
+        };
+      }
+      if (url.includes('gemini-3-flash-preview')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [{
+              content: {
+                parts: [{
+                  text: JSON.stringify({
+                    detectedLanguage: 'Almanca',
+                    detectedLanguageCode: 'de',
+                    translation: 'Merhaba'
+                  })
+                }]
+              }
+            }]
+          })
+        };
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+  });
+
+  const res = await svc.translateIncomingOnly({
+    apiKey: 'AIza-KEY',
+    model: 'gemini-3.1-flash-lite-preview',
+    autoFallback: true,
+    fallbackModel: 'auto',
+    emailText: 'Hallo',
+    translationLang: 'tr'
+  });
+
+  assert.equal(res.translation, 'Merhaba');
+  assert.equal(res._usedModel, 'gemini-3-flash-preview');
+  assert.equal(res._switchedFrom, 'gemini-3.1-flash-lite-preview');
+  assert.equal(calledUrls.some((u) => u.includes('image-preview')), false, 'must never fall back to image-only model');
+});
+
+test('does not fall back on 401/403 auth errors or when autoFallback is false', async () => {
+  let callCount = 0;
+  const svc = createGeminiService({
+    fetchImpl: async () => {
+      callCount += 1;
+      return {
+        ok: false,
+        status: 401,
+        json: async () => ({ error: { message: 'invalid key' } })
+      };
+    }
+  });
+
+  await assert.rejects(
+    () => svc.translateIncomingOnly({
+      apiKey: 'AIza-BAD',
+      model: 'gemini-3.1-flash-lite-preview',
+      autoFallback: true,
+      fallbackModel: 'gemini-3-flash-preview',
+      emailText: 'Hello',
+      translationLang: 'tr'
+    }),
+    /API anahtarı/i
+  );
+  assert.equal(callCount, 1);
+});

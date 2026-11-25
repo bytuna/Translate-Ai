@@ -320,6 +320,24 @@
                 </label>
               </div>
 
+              <div class="form-row-2">
+                <label class="checkbox-field">
+                  <input id="setAutoFallback" type="checkbox" checked>
+                  <span>Otomatik yedek model geçişi (503/429 yoğunlukta sıradaki aktif modele geç)</span>
+                </label>
+
+                <label class="form-field">
+                  <span>Öncelikli Yedek Model</span>
+                  <select id="setFallbackModel">
+                    <option value="auto" selected>Otomatik (Aktif modellerden seç)</option>
+                    <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                    <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                    <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
+                    <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                  </select>
+                </label>
+              </div>
+
               <div class="test-row">
                 <button id="testApiBtn" class="btn btn-sm btn-ghost" type="button">Bağlantıyı Test Et</button>
                 <span id="testApiResult" class="status-meta"></span>

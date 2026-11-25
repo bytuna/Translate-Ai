@@ -57,23 +57,33 @@ function parseJsonResponse(rawText) {
 
 function classifyHttpError(status, detail, apiKey, modelName = '') {
   const safeDetail = scrubSecret(detail, apiKey);
+  let err;
   if (status === 401 || status === 403) {
-    return new Error('Gemini API anahtarı geçersiz veya yetkisiz. Lütfen Ayarlar ekranından anahtarınızı kontrol edin.');
-  }
-  if (status === 404) {
+    err = new Error('Gemini API anahtarı geçersiz veya yetkisiz. Lütfen Ayarlar ekranından anahtarınızı kontrol edin.');
+  } else if (status === 404) {
     const label = modelName ? ` ("${modelName}")` : '';
     const extra = safeDetail ? ` [${safeDetail.slice(0, 160)}]` : '';
-    return new Error(
+    err = new Error(
       `Seçilen Gemini modeli${label} bulunamadı. Ayarlar'dan "Modelleri Getir" butonuna basıp aktif bir model seçin.${extra}`
     );
+    err.retryableModelError = true;
+  } else if (status === 429) {
+    err = new Error('Gemini API kullanım kotası veya hız limiti aşıldı (429). Kısa süre sonra tekrar deneyin.');
+    err.retryableModelError = true;
+  } else if (status >= 500) {
+    err = new Error(`Gemini sunucusu geçici olarak yanıt veremiyor (HTTP ${status}). Lütfen tekrar deneyin.`);
+    err.retryableModelError = true;
+  } else {
+    err = new Error(`Gemini API hatası (HTTP ${status})${safeDetail ? `: ${safeDetail.slice(0, 180)}` : ''}`);
   }
-  if (status === 429) {
-    return new Error('Gemini API kullanım kotası veya hız limiti aşıldı (429). Kısa süre sonra tekrar deneyin.');
-  }
-  if (status >= 500) {
-    return new Error(`Gemini sunucusu geçici olarak yanıt veremiyor (HTTP ${status}). Lütfen tekrar deneyin.`);
-  }
-  return new Error(`Gemini API hatası (HTTP ${status})${safeDetail ? `: ${safeDetail.slice(0, 180)}` : ''}`);
+  err.httpStatus = status;
+  return err;
+}
+
+function isTextChatModel(id) {
+  const lower = String(id || '').toLowerCase();
+  if (!lower.startsWith('gemini-')) return false;
+  return !/(image|tts|audio|robotics|computer-use|deep-research|customtools|live|vision|exp-|embedding)/.test(lower);
 }
 
 function rankGeminiModel(id) {
@@ -119,13 +129,17 @@ function buildThinkingConfig(model) {
 }
 
 function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  const modelListCache = new Map();
+  const MODEL_CACHE_TTL_MS = 10 * 60 * 1000;
+
   async function generateStructured({
     apiKey,
     model = 'gemini-2.5-flash',
     systemInstruction,
     userPrompt,
     responseSchema,
-    allowThinkingFallback = true
+    allowThinkingFallback = true,
+    attemptTimeoutMs = timeoutMs
   }) {
     if (!apiKey || !String(apiKey).trim()) {
       throw new Error('Gemini API anahtarı kayıtlı değil. Lütfen Ayarlar sekmesinden anahtarınızı girin.');
@@ -135,7 +149,7 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
     const url = `${GEMINI_BASE_URL}/${encodeURIComponent(cleanModel)}:generateContent`;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), attemptTimeoutMs);
 
     const thinkingConfig = allowThinkingFallback ? buildThinkingConfig(cleanModel) : undefined;
     const generationConfig = {
@@ -219,7 +233,9 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
       return parseJsonResponse(text);
     } catch (err) {
       if (err && err.name === 'AbortError') {
-        throw new Error('Gemini API isteği zaman aşımına uğradı. İnternet bağlantınızı kontrol edip tekrar deneyin.');
+        const timeoutErr = new Error('Gemini API isteği zaman aşımına uğradı. İnternet bağlantınızı kontrol edip tekrar deneyin.');
+        timeoutErr.retryableModelError = true;
+        throw timeoutErr;
       }
       if (
         err &&
@@ -238,41 +254,139 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
     }
   }
 
-  async function analyzeEmail({ apiKey, model, emailText, translationLang, replyLang, tone, signature }) {
+  async function getCachedTextModels(apiKey) {
+    const cleanKey = String(apiKey || '').trim();
+    const cached = modelListCache.get(cleanKey);
+    if (cached && Date.now() - cached.ts < MODEL_CACHE_TTL_MS) {
+      return cached.models;
+    }
+    try {
+      const all = await listModels({ apiKey: cleanKey });
+      const textModels = all.map((m) => m.id).filter(isTextChatModel);
+      modelListCache.set(cleanKey, { ts: Date.now(), models: textModels });
+      return textModels;
+    } catch {
+      return [];
+    }
+  }
+
+  async function generateWithFallback({
+    apiKey,
+    model,
+    autoFallback = true,
+    fallbackModel = 'auto',
+    systemInstruction,
+    userPrompt,
+    responseSchema
+  }) {
+    const primary = normalizeModelName(model);
+    try {
+      const res = await generateStructured({
+        apiKey,
+        model: primary,
+        systemInstruction,
+        userPrompt,
+        responseSchema,
+        attemptTimeoutMs: autoFallback ? Math.min(timeoutMs, 20000) : timeoutMs
+      });
+      return { ...res, _usedModel: primary };
+    } catch (firstErr) {
+      if (!autoFallback || !firstErr || !firstErr.retryableModelError) {
+        throw firstErr;
+      }
+
+      const candidates = [];
+      const seen = new Set([primary]);
+
+      if (fallbackModel && fallbackModel !== 'auto') {
+        try {
+          const explicit = normalizeModelName(fallbackModel);
+          if (!seen.has(explicit)) {
+            seen.add(explicit);
+            candidates.push(explicit);
+          }
+        } catch {
+          // Ignore invalid explicit fallback and continue with discovery
+        }
+      }
+
+      const discovered = await getCachedTextModels(apiKey);
+      for (const id of discovered) {
+        if (!seen.has(id) && candidates.length < 3) {
+          seen.add(id);
+          candidates.push(id);
+        }
+      }
+
+      let lastErr = firstErr;
+      const tried = [primary];
+
+      for (let i = 0; i < candidates.length; i++) {
+        const candidate = candidates[i];
+        tried.push(candidate);
+        const isLast = i === candidates.length - 1;
+        try {
+          const res = await generateStructured({
+            apiKey,
+            model: candidate,
+            systemInstruction,
+            userPrompt,
+            responseSchema,
+            attemptTimeoutMs: isLast ? timeoutMs : Math.min(timeoutMs, 20000)
+          });
+          return { ...res, _usedModel: candidate, _switchedFrom: primary };
+        } catch (err) {
+          lastErr = err;
+          if (!err || !err.retryableModelError) {
+            throw err;
+          }
+        }
+      }
+
+      if (tried.length > 1 && lastErr instanceof Error) {
+        lastErr.message = `${lastErr.message} (Otomatik denenen modeller: ${tried.join(', ')})`;
+      }
+      throw lastErr;
+    }
+  }
+
+  async function analyzeEmail({ apiKey, model, autoFallback, fallbackModel, emailText, translationLang, replyLang, tone, signature }) {
     if (!emailText || !emailText.trim()) {
       throw new Error('Lütfen çevrilecek e-posta metnini girin.');
     }
     const payload = buildAnalyzePayload({ emailText, translationLang, replyLang, tone, signature });
-    return generateStructured({ apiKey, model, ...payload });
+    return generateWithFallback({ apiKey, model, autoFallback, fallbackModel, ...payload });
   }
 
-  async function translateIncomingOnly({ apiKey, model, emailText, translationLang }) {
+  async function translateIncomingOnly({ apiKey, model, autoFallback, fallbackModel, emailText, translationLang }) {
     if (!emailText || !emailText.trim()) {
       throw new Error('Lütfen çevrilecek e-posta metnini girin.');
     }
     const payload = buildTranslateOnlyPayload({ emailText, translationLang });
-    return generateStructured({ apiKey, model, ...payload });
+    return generateWithFallback({ apiKey, model, autoFallback, fallbackModel, ...payload });
   }
 
-  async function suggestReplyOnly({ apiKey, model, emailText, translationLang, replyLang, tone, signature }) {
+  async function suggestReplyOnly({ apiKey, model, autoFallback, fallbackModel, emailText, translationLang, replyLang, tone, signature }) {
     if (!emailText || !emailText.trim()) {
       throw new Error('Lütfen çevrilecek e-posta metnini girin.');
     }
     const payload = buildSuggestReplyPayload({ emailText, translationLang, replyLang, tone, signature });
-    return generateStructured({ apiKey, model, ...payload });
+    return generateWithFallback({ apiKey, model, autoFallback, fallbackModel, ...payload });
   }
 
-  async function composeFromTurkish({ apiKey, model, turkishDraft, targetLang, tone, signature }) {
+  async function composeFromTurkish({ apiKey, model, autoFallback, fallbackModel, turkishDraft, targetLang, tone, signature }) {
     if (!turkishDraft || !turkishDraft.trim()) {
       throw new Error('Lütfen dönüştürülecek Türkçe metni yazın.');
     }
     const payload = buildComposePayload({ turkishDraft, targetLang, tone, signature });
-    return generateStructured({ apiKey, model, ...payload });
+    return generateWithFallback({ apiKey, model, autoFallback, fallbackModel, ...payload });
   }
 
   async function reviseReply({
     apiKey,
     model,
+    autoFallback,
+    fallbackModel,
     mode,
     originalInput,
     currentDraft,
@@ -297,15 +411,17 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
       tone,
       signature
     });
-    return generateStructured({ apiKey, model, ...payload });
+    return generateWithFallback({ apiKey, model, autoFallback, fallbackModel, ...payload });
   }
 
-  async function testConnection({ apiKey, model = 'gemini-2.5-flash' }) {
+  async function testConnection({ apiKey, model = 'gemini-2.5-flash', autoFallback = false, fallbackModel = 'auto' }) {
     const cleanModel = normalizeModelName(model);
     const start = Date.now();
-    const res = await generateStructured({
+    const res = await generateWithFallback({
       apiKey,
       model: cleanModel,
+      autoFallback,
+      fallbackModel,
       systemInstruction: 'Return JSON {"status":"ok"}.',
       userPrompt: 'Ping',
       responseSchema: {
@@ -314,7 +430,12 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
         required: ['status']
       }
     });
-    return { ok: Boolean(res && res.status), model: cleanModel, elapsedMs: Date.now() - start };
+    return {
+      ok: Boolean(res && res.status),
+      model: res._usedModel || cleanModel,
+      switchedFrom: res._switchedFrom || null,
+      elapsedMs: Date.now() - start
+    };
   }
 
   async function listModels({ apiKey }) {
