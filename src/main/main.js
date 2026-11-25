@@ -83,6 +83,11 @@ function centerWindowOnActiveDisplay() {
 }
 
 function buildTrayIcon() {
+  const trayPngPath = path.join(__dirname, '..', '..', 'assets', 'tray.png');
+  const loaded = nativeImage.createFromPath(trayPngPath);
+  if (loaded && !loaded.isEmpty()) {
+    return loaded.resize({ width: 16, height: 16 });
+  }
   const size = 16;
   const buffer = Buffer.alloc(size * size * 4);
   for (let y = 0; y < size; y++) {
@@ -181,6 +186,7 @@ function createWindow() {
     height: 680,
     minWidth: 720,
     minHeight: 520,
+    icon: path.join(__dirname, '..', '..', 'assets', 'icon.ico'),
     show: false,
     frame: false,
     transparent: true,

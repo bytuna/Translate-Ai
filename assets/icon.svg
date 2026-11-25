@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="55%" stop-color="#13223b"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="36" y1="54" x2="220" y2="206" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="55%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="sparkleGrad" x1="168" y1="28" x2="224" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#a7f3d0"/>
+      <stop offset="55%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="borderGrad" x1="12" y1="12" x2="244" y2="244" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.7"/>
+      <stop offset="50%" stop-color="#6366f1" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.65"/>
+    </linearGradient>
+    <clipPath id="squircleClip">
+      <rect x="12" y="12" width="232" height="232" rx="54"/>
+    </clipPath>
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Rounded Squircle Base -->
+  <rect x="12" y="12" width="232" height="232" rx="54" fill="url(#bgGrad)"/>
+  <rect x="14.5" y="14.5" width="227" height="227" rx="51.5" fill="none" stroke="url(#borderGrad)" stroke-width="5"/>
+
+  <!-- Soft ambient highlight clipped inside squircle -->
+  <g clip-path="url(#squircleClip)">
+    <ellipse cx="96" cy="78" rx="84" ry="52" fill="#10b981" opacity="0.11"/>
+    <ellipse cx="178" cy="186" rx="76" ry="56" fill="#6366f1" opacity="0.16"/>
+  </g>
+
+  <!-- Envelope Outer Body -->
+  <rect x="44" y="74" width="168" height="118" rx="22" fill="url(#accentGrad)" opacity="0.18"/>
+  <rect x="44" y="74" width="168" height="118" rx="22" fill="none" stroke="url(#accentGrad)" stroke-width="11" stroke-linejoin="round"/>
+
+  <!-- Envelope Flap -->
+  <path d="M52 86 L128 140 L204 86" fill="none" stroke="#f8fafc" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Bottom subtle fold lines -->
+  <path d="M54 180 L98 142" fill="none" stroke="#34d399" stroke-width="6" stroke-linecap="round" opacity="0.65"/>
+  <path d="M202 180 L158 142" fill="none" stroke="#818cf8" stroke-width="6" stroke-linecap="round" opacity="0.65"/>
+
+  <!-- AI Sparkle Badge (Top Right) -->
+  <g filter="url(#glow)">
+    <path d="M196 28 C198 46, 206 54, 224 56 C206 58, 198 66, 196 84 C194 66, 186 58, 168 56 C186 54, 194 46, 196 28 Z" fill="url(#sparkleGrad)"/>
+  </g>
+  <circle cx="163" cy="39" r="5" fill="#a7f3d0" opacity="0.9"/>
+</svg>

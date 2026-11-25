@@ -7,6 +7,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/*.test.js",
+    "icons": "electron scripts/generate-icons.js",
     "dist": "electron-builder"
   },
   "dependencies": {
@@ -26,9 +27,11 @@
     ],
     "files": [
       "src/**/*",
+      "assets/**/*",
       "package.json"
     ],
     "win": {
+      "icon": "assets/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -48,7 +51,10 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico"
     }
   }
 }
