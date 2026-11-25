@@ -372,10 +372,15 @@ function registerIpcHandlers() {
     const settings = configStore.getPublicSettings();
     const apiKey = (params.apiKey && params.apiKey.trim()) || configStore.getApiKey();
     const model =
-      params.model === 'custom' && params.customModel && params.customModel.trim()
-        ? params.customModel.trim()
+      params.model === 'custom'
+        ? (params.customModel || '').trim()
         : params.model || resolveActiveModel(settings);
     return geminiService.testConnection({ apiKey, model });
+  });
+
+  ipcMain.handle('ai:list-models', async (_event, params = {}) => {
+    const apiKey = (params.apiKey && params.apiKey.trim()) || configStore.getApiKey();
+    return geminiService.listModels({ apiKey });
   });
 
   ipcMain.handle('quick:translate', async (_event, params = {}) => {

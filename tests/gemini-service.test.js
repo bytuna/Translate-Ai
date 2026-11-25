@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createGeminiService, parseJsonResponse } = require('../src/main/gemini-service');
+const { createGeminiService, parseJsonResponse, normalizeModelName } = require('../src/main/gemini-service');
 
 test('sends API key only in x-goog-api-key header and parses structured response', async () => {
   let capturedUrl = '';
@@ -123,5 +123,60 @@ test('maps 401/403/429/safety/timeout errors to clear Turkish messages without l
   await assert.rejects(
     () => svcTimeout.testConnection({ apiKey: secretKey, model: 'gemini-2.5-flash' }),
     /zaman aşımı/i
+  );
+});
+
+test('normalizes models/ prefix and rejects literal custom or empty model name', () => {
+  assert.equal(normalizeModelName('models/gemini-2.5-flash'), 'gemini-2.5-flash');
+  assert.equal(normalizeModelName('  gemini-2.0-flash  '), 'gemini-2.0-flash');
+  assert.throws(() => normalizeModelName('custom'), /geçerli bir Gemini model/i);
+  assert.throws(() => normalizeModelName('   '), /geçerli bir Gemini model/i);
+});
+
+test('listModels fetches generateContent models via x-goog-api-key header', async () => {
+  let capturedUrl = '';
+  let capturedHeaders = {};
+  const svc = createGeminiService({
+    fetchImpl: async (url, opts) => {
+      capturedUrl = url;
+      capturedHeaders = opts.headers;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [
+            {
+              name: 'models/gemini-2.0-flash',
+              displayName: 'Gemini 2.0 Flash',
+              supportedGenerationMethods: ['generateContent', 'countTokens']
+            },
+            {
+              name: 'models/text-embedding-004',
+              displayName: 'Text Embedding',
+              supportedGenerationMethods: ['embedContent']
+            }
+          ]
+        })
+      };
+    }
+  });
+
+  const models = await svc.listModels({ apiKey: 'AIza-LIST-KEY' });
+  assert.equal(capturedUrl.includes('AIza-LIST-KEY'), false);
+  assert.equal(capturedHeaders['x-goog-api-key'], 'AIza-LIST-KEY');
+  assert.deepEqual(models, [{ id: 'gemini-2.0-flash', displayName: 'Gemini 2.0 Flash' }]);
+});
+
+test('HTTP 404 error includes model name and sanitized Google error detail', async () => {
+  const svc404 = createGeminiService({
+    fetchImpl: async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: { message: 'models/gemini-old is not found for API version v1beta' } })
+    })
+  });
+  await assert.rejects(
+    () => svc404.testConnection({ apiKey: 'AIza-KEY', model: 'models/gemini-old' }),
+    (err) => err.message.includes('gemini-old') && err.message.includes('not found')
   );
 });

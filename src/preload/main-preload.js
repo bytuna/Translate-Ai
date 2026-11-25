@@ -12,7 +12,8 @@ contextBridge.exposeInMainWorld('lumina', {
     analyzeEmail: (params) => ipcRenderer.invoke('ai:analyze-email', params),
     composeFromTurkish: (params) => ipcRenderer.invoke('ai:compose-turkish', params),
     reviseReply: (params) => ipcRenderer.invoke('ai:revise-reply', params),
-    testConnection: (params) => ipcRenderer.invoke('ai:test-connection', params)
+    testConnection: (params) => ipcRenderer.invoke('ai:test-connection', params),
+    listModels: (params) => ipcRenderer.invoke('ai:list-models', params)
   },
   quick: {
     translate: (params) => ipcRenderer.invoke('quick:translate', params)

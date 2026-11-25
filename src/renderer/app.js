@@ -98,6 +98,7 @@
   const clearApiKeyBtn = $('clearApiKeyBtn');
   const apiKeyStatusText = $('apiKeyStatusText');
   const setModel = $('setModel');
+  const fetchModelsBtn = $('fetchModelsBtn');
   const customModelWrap = $('customModelWrap');
   const setCustomModel = $('setCustomModel');
   const testApiBtn = $('testApiBtn');
@@ -417,8 +418,18 @@
       apiKeyStatusText.className = 'status-meta';
     }
 
-    setModel.value = ['gemini-2.5-flash', 'gemini-2.5-pro'].includes(settings.model) ? settings.model : 'custom';
-    setCustomModel.value = settings.customModel || (setModel.value === 'custom' ? settings.model : '');
+    const knownOption = Array.from(setModel.options).some(
+      (opt) => opt.value !== 'custom' && opt.value === settings.model
+    );
+    if (!knownOption && settings.model && settings.model !== 'custom') {
+      const opt = document.createElement('option');
+      opt.value = settings.model;
+      opt.textContent = settings.model;
+      const customOpt = setModel.querySelector('option[value="custom"]');
+      setModel.insertBefore(opt, customOpt);
+    }
+    setModel.value = settings.model === 'custom' ? 'custom' : settings.model || 'gemini-2.5-flash';
+    setCustomModel.value = settings.customModel || '';
     customModelWrap.classList.toggle('hidden', setModel.value !== 'custom');
 
     setSignature.value = settings.signature || '';
@@ -595,6 +606,68 @@
     showToast('API anahtarı silindi');
   });
 
+  function populateModelOptions(models, preferCurrent) {
+    const current = setModel.value;
+    while (setModel.firstChild) {
+      setModel.removeChild(setModel.firstChild);
+    }
+    models.forEach((m) => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.displayName && m.displayName !== m.id ? `${m.id} (${m.displayName})` : m.id;
+      setModel.appendChild(opt);
+    });
+    const customOpt = document.createElement('option');
+    customOpt.value = 'custom';
+    customOpt.textContent = 'Özel Model Adı...';
+    setModel.appendChild(customOpt);
+
+    if (preferCurrent && models.some((m) => m.id === current)) {
+      setModel.value = current;
+    } else {
+      const preferred =
+        models.find((m) => /flash/i.test(m.id) && !/lite|8b|tts|image|audio/i.test(m.id)) || models[0];
+      if (preferred) setModel.value = preferred.id;
+    }
+    customModelWrap.classList.toggle('hidden', setModel.value !== 'custom');
+  }
+
+  async function fetchAvailableModels(silent = false) {
+    fetchModelsBtn.disabled = true;
+    if (!silent) {
+      testApiResult.textContent = 'API anahtarınızdaki aktif modeller getiriliyor...';
+      testApiResult.className = 'status-meta';
+    }
+    try {
+      const models = await api.ai.listModels({
+        apiKey: setApiKey.value.trim() || undefined
+      });
+      if (!Array.isArray(models) || models.length === 0) {
+        if (!silent) {
+          testApiResult.textContent = 'Bu API anahtarı için generateContent destekli model bulunamadı.';
+          testApiResult.className = 'status-meta status-err';
+        }
+        return [];
+      }
+      populateModelOptions(models, !silent);
+      if (!silent) {
+        testApiResult.textContent = `${models.length} aktif model yüklendi ✓ Seçip "Bağlantıyı Test Et" veya "Ayarları Kaydet" deyin.`;
+        testApiResult.className = 'status-meta status-ok';
+      }
+      return models;
+    } catch (err) {
+      if (!silent) {
+        testApiResult.textContent = cleanErrorMessage(err, 'Model listesi alınamadı.');
+        testApiResult.className = 'status-meta status-err';
+      }
+      return [];
+    } finally {
+      fetchModelsBtn.disabled = false;
+    }
+  }
+
+  fetchModelsBtn.addEventListener('click', () => fetchAvailableModels(false));
+
   setModel.addEventListener('change', () => {
     customModelWrap.classList.toggle('hidden', setModel.value !== 'custom');
   });
@@ -612,7 +685,16 @@
       testApiResult.textContent = `Bağlantı başarılı (${res.model}) ✓`;
       testApiResult.className = 'status-meta status-ok';
     } catch (err) {
-      testApiResult.textContent = cleanErrorMessage(err, 'Bağlantı başarısız.');
+      const msg = cleanErrorMessage(err, 'Bağlantı başarısız.');
+      if (/bulunamadı/i.test(msg)) {
+        const models = await fetchAvailableModels(true);
+        if (models.length > 0) {
+          testApiResult.textContent = `Önceki model bulunamadı; anahtarınızdaki ${models.length} aktif model listeye yüklendi ("${setModel.value}" seçildi). Şimdi tekrar "Bağlantıyı Test Et" deyin.`;
+          testApiResult.className = 'status-meta status-err';
+          return;
+        }
+      }
+      testApiResult.textContent = msg;
       testApiResult.className = 'status-meta status-err';
     } finally {
       testApiBtn.disabled = false;

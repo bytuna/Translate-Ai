@@ -13,6 +13,15 @@ function scrubSecret(message, apiKey) {
   return str.split(apiKey).join('[REDACTED]');
 }
 
+function normalizeModelName(model) {
+  const raw = typeof model === 'string' ? model.trim() : '';
+  const stripped = raw.replace(/^models\//i, '').trim();
+  if (!stripped || stripped.toLowerCase() === 'custom') {
+    throw new Error('Lütfen geçerli bir Gemini model adı seçin veya "Modelleri Getir" butonuna basın.');
+  }
+  return stripped;
+}
+
 function parseJsonResponse(rawText) {
   if (typeof rawText !== 'string' || !rawText.trim()) {
     throw new Error('Gemini boş yanıt döndürdü.');
@@ -44,13 +53,17 @@ function parseJsonResponse(rawText) {
   return parsed;
 }
 
-function classifyHttpError(status, detail, apiKey) {
+function classifyHttpError(status, detail, apiKey, modelName = '') {
   const safeDetail = scrubSecret(detail, apiKey);
   if (status === 401 || status === 403) {
     return new Error('Gemini API anahtarı geçersiz veya yetkisiz. Lütfen Ayarlar ekranından anahtarınızı kontrol edin.');
   }
   if (status === 404) {
-    return new Error('Seçilen Gemini modeli bulunamadı. Ayarlar ekranından model adını kontrol edin.');
+    const label = modelName ? ` ("${modelName}")` : '';
+    const extra = safeDetail ? ` [${safeDetail.slice(0, 160)}]` : '';
+    return new Error(
+      `Seçilen Gemini modeli${label} bulunamadı. Ayarlar'dan "Modelleri Getir" butonuna basıp aktif bir model seçin.${extra}`
+    );
   }
   if (status === 429) {
     return new Error('Gemini API kullanım kotası veya hız limiti aşıldı (429). Kısa süre sonra tekrar deneyin.');
@@ -67,7 +80,7 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
       throw new Error('Gemini API anahtarı kayıtlı değil. Lütfen Ayarlar sekmesinden anahtarınızı girin.');
     }
     const cleanKey = String(apiKey).trim();
-    const cleanModel = String(model || 'gemini-2.5-flash').trim();
+    const cleanModel = normalizeModelName(model);
     const url = `${GEMINI_BASE_URL}/${encodeURIComponent(cleanModel)}:generateContent`;
 
     const controller = new AbortController();
@@ -113,7 +126,7 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
             detail = '';
           }
         }
-        throw classifyHttpError(response.status, detail, cleanKey);
+        throw classifyHttpError(response.status, detail, cleanKey, cleanModel);
       }
 
       const data = await response.json();
@@ -200,9 +213,10 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
   }
 
   async function testConnection({ apiKey, model = 'gemini-2.5-flash' }) {
+    const cleanModel = normalizeModelName(model);
     const res = await generateStructured({
       apiKey,
-      model,
+      model: cleanModel,
       systemInstruction: 'Return JSON {"status":"ok"}.',
       userPrompt: 'Ping',
       responseSchema: {
@@ -211,18 +225,84 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
         required: ['status']
       }
     });
-    return { ok: Boolean(res && res.status), model };
+    return { ok: Boolean(res && res.status), model: cleanModel };
+  }
+
+  async function listModels({ apiKey }) {
+    if (!apiKey || !String(apiKey).trim()) {
+      throw new Error('Gemini API anahtarı kayıtlı değil. Lütfen Ayarlar sekmesinden anahtarınızı girin.');
+    }
+    const cleanKey = String(apiKey).trim();
+    const url = `${GEMINI_BASE_URL}?pageSize=100`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetchImpl(url, {
+        method: 'GET',
+        headers: {
+          'x-goog-api-key': cleanKey
+        },
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        let detail = '';
+        try {
+          const errJson = await response.json();
+          detail = errJson && errJson.error && errJson.error.message ? errJson.error.message : '';
+        } catch {
+          detail = '';
+        }
+        throw classifyHttpError(response.status, detail, cleanKey);
+      }
+
+      const data = await response.json();
+      const rawModels = data && Array.isArray(data.models) ? data.models : [];
+      return rawModels
+        .filter(
+          (m) =>
+            m &&
+            typeof m.name === 'string' &&
+            Array.isArray(m.supportedGenerationMethods) &&
+            m.supportedGenerationMethods.includes('generateContent')
+        )
+        .map((m) => ({
+          id: m.name.replace(/^models\//i, ''),
+          displayName: m.displayName || m.name.replace(/^models\//i, '')
+        }));
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        throw new Error('Model listesi alınırken zaman aşımı oluştu. İnternet bağlantınızı kontrol edin.');
+      }
+      if (
+        err &&
+        (err.name === 'TypeError' ||
+          /fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|network/i.test(String(err.message || '')))
+      ) {
+        throw new Error('Gemini sunucusuna bağlanılamadı. İnternet veya ağ bağlantınızı kontrol edin.');
+      }
+      if (err instanceof Error) {
+        err.message = scrubSecret(err.message, cleanKey);
+        throw err;
+      }
+      throw new Error('Model listesi alınamadı.');
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   return {
     analyzeEmail,
     composeFromTurkish,
     reviseReply,
-    testConnection
+    testConnection,
+    listModels
   };
 }
 
 module.exports = {
   createGeminiService,
-  parseJsonResponse
+  parseJsonResponse,
+  normalizeModelName
 };
