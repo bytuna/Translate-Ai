@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('lumina', {
     save: (patch) => ipcRenderer.invoke('settings:save', patch),
     clearApiKey: () => ipcRenderer.invoke('settings:clear-api-key')
   },
+  usage: {
+    get: () => ipcRenderer.invoke('usage:get'),
+    reset: () => ipcRenderer.invoke('usage:reset')
+  },
   clipboard: {
     readText: () => ipcRenderer.invoke('clipboard:read'),
     writeText: (text) => ipcRenderer.invoke('clipboard:write', text)
@@ -44,6 +48,7 @@ contextBridge.exposeInMainWorld('lumina', {
     onOcrStatus: (cb) => subscribe('ocr-status', cb),
     onOcrResult: (cb) => subscribe('ocr-result', cb),
     onOcrError: (cb) => subscribe('ocr-error', cb),
-    onPinChanged: (cb) => subscribe('pin-changed', cb)
+    onPinChanged: (cb) => subscribe('pin-changed', cb),
+    onUsageUpdated: (cb) => subscribe('usage-updated', cb)
   }
 });

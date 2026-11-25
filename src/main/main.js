@@ -21,6 +21,7 @@ const { evaluateClipboardIntake } = require('./clipboard-session');
 const { createShortcutManager } = require('./shortcut-manager');
 const { createOcrService } = require('./ocr-service');
 const { selectDisplaySource } = require('./display-matcher');
+const { createUsageStore } = require('./usage-store');
 
 const IS_SMOKE_TEST = process.argv.includes('--smoke-test');
 
@@ -50,6 +51,18 @@ let geminiService = null;
 let googleTranslateService = null;
 let shortcutManager = null;
 let ocrService = null;
+let usageStore = null;
+
+function recordUsageFromResult(res, fallbackModelName) {
+  if (!usageStore || !res || !res._usage) return;
+  const summary = usageStore.record({
+    model: res._usedModel || res.model || fallbackModelName,
+    usage: res._usage
+  });
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('usage-updated', summary);
+  }
+}
 
 function resolveActiveModel(settings) {
   if (settings.model === 'custom' && settings.customModel && settings.customModel.trim()) {
@@ -325,7 +338,7 @@ function registerIpcHandlers() {
     const settings = configStore.getPublicSettings();
     const apiKey = configStore.getApiKey();
     const model = resolveActiveModel(settings);
-    return geminiService.analyzeEmail({
+    const res = await geminiService.analyzeEmail({
       apiKey,
       model,
       autoFallback: settings.autoFallback,
@@ -336,13 +349,15 @@ function registerIpcHandlers() {
       tone: params.tone || settings.defaultTone,
       signature: settings.signature
     });
+    recordUsageFromResult(res, model);
+    return res;
   });
 
   ipcMain.handle('ai:translate-only', async (_event, params = {}) => {
     const settings = configStore.getPublicSettings();
     const apiKey = configStore.getApiKey();
     const model = resolveActiveModel(settings);
-    return geminiService.translateIncomingOnly({
+    const res = await geminiService.translateIncomingOnly({
       apiKey,
       model,
       autoFallback: settings.autoFallback,
@@ -350,13 +365,15 @@ function registerIpcHandlers() {
       emailText: params.emailText,
       translationLang: params.translationLang || settings.translationLang
     });
+    recordUsageFromResult(res, model);
+    return res;
   });
 
   ipcMain.handle('ai:suggest-reply', async (_event, params = {}) => {
     const settings = configStore.getPublicSettings();
     const apiKey = configStore.getApiKey();
     const model = resolveActiveModel(settings);
-    return geminiService.suggestReplyOnly({
+    const res = await geminiService.suggestReplyOnly({
       apiKey,
       model,
       autoFallback: settings.autoFallback,
@@ -367,13 +384,15 @@ function registerIpcHandlers() {
       tone: params.tone || settings.defaultTone,
       signature: settings.signature
     });
+    recordUsageFromResult(res, model);
+    return res;
   });
 
   ipcMain.handle('ai:compose-turkish', async (_event, params = {}) => {
     const settings = configStore.getPublicSettings();
     const apiKey = configStore.getApiKey();
     const model = resolveActiveModel(settings);
-    return geminiService.composeFromTurkish({
+    const res = await geminiService.composeFromTurkish({
       apiKey,
       model,
       autoFallback: settings.autoFallback,
@@ -383,13 +402,15 @@ function registerIpcHandlers() {
       tone: params.tone || settings.defaultTone,
       signature: settings.signature
     });
+    recordUsageFromResult(res, model);
+    return res;
   });
 
   ipcMain.handle('ai:revise-reply', async (_event, params = {}) => {
     const settings = configStore.getPublicSettings();
     const apiKey = configStore.getApiKey();
     const model = resolveActiveModel(settings);
-    return geminiService.reviseReply({
+    const res = await geminiService.reviseReply({
       apiKey,
       model,
       autoFallback: settings.autoFallback,
@@ -404,6 +425,8 @@ function registerIpcHandlers() {
       tone: params.tone || settings.defaultTone,
       signature: settings.signature
     });
+    recordUsageFromResult(res, model);
+    return res;
   });
 
   ipcMain.handle('ai:test-connection', async (_event, params = {}) => {
@@ -415,7 +438,18 @@ function registerIpcHandlers() {
         : params.model || resolveActiveModel(settings);
     const autoFallback = params.autoFallback !== undefined ? Boolean(params.autoFallback) : settings.autoFallback;
     const fallbackModel = params.fallbackModel || settings.fallbackModel;
-    return geminiService.testConnection({ apiKey, model, autoFallback, fallbackModel });
+    const res = await geminiService.testConnection({ apiKey, model, autoFallback, fallbackModel });
+    recordUsageFromResult(res, model);
+    return res;
+  });
+
+  ipcMain.handle('usage:get', () => usageStore.getSummary());
+  ipcMain.handle('usage:reset', () => {
+    const summary = usageStore.reset();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('usage-updated', summary);
+    }
+    return summary;
   });
 
   ipcMain.handle('ai:list-models', async (_event, params = {}) => {
@@ -524,6 +558,9 @@ app.whenReady().then(() => {
   configStore = createConfigStore({
     filePath: path.join(userData, 'config.json'),
     safeStorage
+  });
+  usageStore = createUsageStore({
+    filePath: path.join(userData, 'usage.json')
   });
   const electronFetch = (url, opts) => net.fetch(url, opts);
   geminiService = createGeminiService({ fetchImpl: electronFetch });

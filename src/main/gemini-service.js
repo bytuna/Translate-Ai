@@ -230,7 +230,21 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
 
       const parts = candidate.content && Array.isArray(candidate.content.parts) ? candidate.content.parts : [];
       const text = parts.map((p) => (typeof p.text === 'string' ? p.text : '')).join('');
-      return parseJsonResponse(text);
+      const parsed = parseJsonResponse(text);
+      const meta = data && data.usageMetadata && typeof data.usageMetadata === 'object' ? data.usageMetadata : null;
+      if (meta) {
+        const promptTokens = Number(meta.promptTokenCount) || 0;
+        const outputTokens = Number(meta.candidatesTokenCount) || 0;
+        const thoughtTokens = Number(meta.thoughtsTokenCount) || 0;
+        const totalTokens = Number(meta.totalTokenCount) || promptTokens + outputTokens + thoughtTokens;
+        parsed._usage = {
+          promptTokens,
+          outputTokens,
+          thoughtTokens,
+          totalTokens
+        };
+      }
+      return parsed;
     } catch (err) {
       if (err && err.name === 'AbortError') {
         const timeoutErr = new Error('Gemini API isteği zaman aşımına uğradı. İnternet bağlantınızı kontrol edip tekrar deneyin.');
@@ -434,6 +448,7 @@ function createGeminiService({ fetchImpl = globalThis.fetch, timeoutMs = DEFAULT
       ok: Boolean(res && res.status),
       model: res._usedModel || cleanModel,
       switchedFrom: res._switchedFrom || null,
+      _usage: res._usage || null,
       elapsedMs: Date.now() - start
     };
   }

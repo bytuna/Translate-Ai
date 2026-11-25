@@ -209,6 +209,7 @@
 
             <!-- Revision Chat Box -->
             <div id="revisionBar" class="revision-bar hidden">
+              <div id="aiTokenMeta" class="token-inline-meta hidden"></div>
               <div id="revisionHistory" class="revision-history"></div>
               <div class="revision-input-row">
                 <input
@@ -380,6 +381,37 @@
             </div>
           </div>
 
+          <div class="settings-card" id="usageStatsCard">
+            <div class="card-head">
+              <h3>Token &amp; Kullanım İstatistikleri</h3>
+              <button id="resetUsageBtn" class="btn btn-xs btn-danger" type="button">Sayacı Sıfırla</button>
+            </div>
+            <p class="muted-meta">Gerçek Gemini API <code>usageMetadata</code> verisi kullanılır. E-posta metinleri kaydedilmez; maliyet tahmini ücretli katman içindir (ücretsiz katmanda $0).</p>
+            <div class="usage-grid">
+              <div class="usage-tile">
+                <span class="usage-tile-label">Son İşlem</span>
+                <strong id="statLastTokens">0 token</strong>
+                <span id="statLastDetail" class="muted-meta">Henüz işlem yok</span>
+              </div>
+              <div class="usage-tile">
+                <span class="usage-tile-label">Bugün</span>
+                <strong id="statTodayTokens">0 token</strong>
+                <span id="statTodayDetail" class="muted-meta">0 istek · ~$0.0000</span>
+              </div>
+              <div class="usage-tile">
+                <span class="usage-tile-label">Bu Ay</span>
+                <strong id="statMonthTokens">0 token</strong>
+                <span id="statMonthDetail" class="muted-meta">0 istek · ~$0.0000</span>
+              </div>
+              <div class="usage-tile">
+                <span class="usage-tile-label">Toplam</span>
+                <strong id="statTotalTokens">0 token</strong>
+                <span id="statTotalDetail" class="muted-meta">0 istek · ~$0.0000</span>
+              </div>
+            </div>
+            <div id="statByModelList" class="model-usage-list"></div>
+          </div>
+
           <div class="settings-actions">
             <button id="saveSettingsBtn" class="btn btn-primary">Ayarları Kaydet</button>
             <span id="saveSettingsStatus" class="status-meta"></span>
@@ -392,7 +424,10 @@
     <footer class="statusbar">
       <span id="shortcutHint">Aç: Ctrl+Shift+T</span>
       <span id="toastText" class="toast-text"></span>
-      <span>Esc: Tepsiye Gizle</span>
+      <div class="status-right">
+        <button id="statusUsageBtn" class="status-pill-btn" type="button" title="Token kullanım istatistiklerini aç">Bugün: 0 token</button>
+        <span>Esc: Gizle</span>
+      </div>
     </footer>
   </div>
 

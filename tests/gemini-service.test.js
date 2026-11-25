@@ -363,3 +363,45 @@ test('does not fall back on 401/403 auth errors or when autoFallback is false', 
   );
   assert.equal(callCount, 1);
 });
+
+test('extracts real usageMetadata token counts from Gemini API response', async () => {
+  const svc = createGeminiService({
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [{
+          content: {
+            parts: [{
+              text: JSON.stringify({
+                detectedLanguage: 'İngilizce',
+                detectedLanguageCode: 'en',
+                translation: 'Merhaba'
+              })
+            }]
+          }
+        }],
+        usageMetadata: {
+          promptTokenCount: 320,
+          candidatesTokenCount: 140,
+          thoughtsTokenCount: 25,
+          totalTokenCount: 485
+        }
+      })
+    })
+  });
+
+  const res = await svc.translateIncomingOnly({
+    apiKey: 'AIza-KEY',
+    model: 'gemini-3.1-flash-lite-preview',
+    emailText: 'Hello',
+    translationLang: 'tr'
+  });
+
+  assert.deepEqual(res._usage, {
+    promptTokens: 320,
+    outputTokens: 140,
+    thoughtTokens: 25,
+    totalTokens: 485
+  });
+});

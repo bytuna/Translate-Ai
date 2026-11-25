@@ -77,6 +77,7 @@
   const quickChips = document.querySelectorAll('.chip-btn');
 
   const revisionBar = $('revisionBar');
+  const aiTokenMeta = $('aiTokenMeta');
   const revisionHistoryEl = $('revisionHistory');
   const revisionInput = $('revisionInput');
   const revisionSendBtn = $('revisionSendBtn');
@@ -116,6 +117,83 @@
 
   const shortcutHint = $('shortcutHint');
   const toastText = $('toastText');
+  const statusUsageBtn = $('statusUsageBtn');
+  const resetUsageBtn = $('resetUsageBtn');
+  const statLastTokens = $('statLastTokens');
+  const statLastDetail = $('statLastDetail');
+  const statTodayTokens = $('statTodayTokens');
+  const statTodayDetail = $('statTodayDetail');
+  const statMonthTokens = $('statMonthTokens');
+  const statMonthDetail = $('statMonthDetail');
+  const statTotalTokens = $('statTotalTokens');
+  const statTotalDetail = $('statTotalDetail');
+  const statByModelList = $('statByModelList');
+
+  function formatTokens(n) {
+    return `${(Number(n) || 0).toLocaleString('tr-TR')} token`;
+  }
+
+  function formatUsd(usd) {
+    const num = Number(usd) || 0;
+    return `~$${num < 0.01 ? num.toFixed(4) : num.toFixed(3)}`;
+  }
+
+  function mergeUsage(a, b) {
+    if (!a && !b) return null;
+    const p = (a?.promptTokens || 0) + (b?.promptTokens || 0);
+    const o = (a?.outputTokens || 0) + (b?.outputTokens || 0);
+    const t = (a?.thoughtTokens || 0) + (b?.thoughtTokens || 0);
+    const tot = (a?.totalTokens || 0) + (b?.totalTokens || 0) || p + o + t;
+    return { promptTokens: p, outputTokens: o, thoughtTokens: t, totalTokens: tot };
+  }
+
+  function renderActionTokenMeta(usage, modelName) {
+    if (!usage || !usage.totalTokens) {
+      aiTokenMeta.classList.add('hidden');
+      aiTokenMeta.textContent = '';
+      return;
+    }
+    const thoughtPart = usage.thoughtTokens ? ` · ${usage.thoughtTokens.toLocaleString('tr-TR')} düşünme` : '';
+    const modelPart = modelName ? ` · ${modelName}` : '';
+    aiTokenMeta.textContent = `Son işlem: ${formatTokens(usage.totalTokens)} (${usage.promptTokens.toLocaleString('tr-TR')} giriş · ${usage.outputTokens.toLocaleString('tr-TR')} çıkış${thoughtPart}${modelPart})`;
+    aiTokenMeta.classList.remove('hidden');
+  }
+
+  function renderUsageSummary(summary) {
+    if (!summary) return;
+    statusUsageBtn.textContent = `Bugün: ${formatTokens(summary.today?.totalTokens || 0)}`;
+
+    if (summary.last) {
+      statLastTokens.textContent = formatTokens(summary.last.totalTokens);
+      statLastDetail.textContent = `${summary.last.promptTokens.toLocaleString('tr-TR')} giriş · ${summary.last.outputTokens.toLocaleString('tr-TR')} çıkış (${summary.last.model})`;
+    } else {
+      statLastTokens.textContent = '0 token';
+      statLastDetail.textContent = 'Henüz işlem yok';
+    }
+
+    const today = summary.today || {};
+    statTodayTokens.textContent = formatTokens(today.totalTokens);
+    statTodayDetail.textContent = `${today.requests || 0} istek · ${formatUsd(today.estimatedUsd)}`;
+
+    const month = summary.month || {};
+    statMonthTokens.textContent = formatTokens(month.totalTokens);
+    statMonthDetail.textContent = `${month.requests || 0} istek · ${formatUsd(month.estimatedUsd)}`;
+
+    const total = summary.total || {};
+    statTotalTokens.textContent = formatTokens(total.totalTokens);
+    statTotalDetail.textContent = `${total.requests || 0} istek · ${formatUsd(total.estimatedUsd)}`;
+
+    while (statByModelList.firstChild) {
+      statByModelList.removeChild(statByModelList.firstChild);
+    }
+    const entries = Object.entries(summary.byModel || {});
+    entries.forEach(([modelId, bucket]) => {
+      const chip = document.createElement('span');
+      chip.className = 'model-usage-chip';
+      chip.textContent = `${modelId}: ${formatTokens(bucket.totalTokens)} (${bucket.requests || 0} istek)`;
+      statByModelList.appendChild(chip);
+    });
+  }
 
   let toastTimer = null;
   function showToast(msg) {
@@ -219,6 +297,8 @@
     setAiError('');
     aiResults.classList.add('hidden');
     revisionBar.classList.add('hidden');
+    aiTokenMeta.classList.add('hidden');
+    aiTokenMeta.textContent = '';
     aiEmptyState.classList.remove('hidden');
     renderRevisionHistory();
     updateSessionState();
@@ -313,11 +393,14 @@
         const replyLang = aiReplyLang.value;
         const tone = state.tone;
         let combined = {};
+        let trUsage = null;
+        let replyUsage = null;
 
         const trPromise = api.ai
           .translateIncomingOnly({ emailText: text, translationLang })
           .then((trRes) => {
             if (reqId !== state.aiRequestId) return;
+            trUsage = trRes._usage || null;
             combined = { ...combined, ...trRes };
             renderResults(
               {
@@ -327,6 +410,7 @@
               },
               false
             );
+            renderActionTokenMeta(mergeUsage(trUsage, replyUsage), combined._usedModel);
             showToast(`Çeviri hazır (${((Date.now() - startMs) / 1000).toFixed(1)} sn)`);
           });
 
@@ -334,6 +418,7 @@
           .suggestReplyOnly({ emailText: text, translationLang, replyLang, tone })
           .then((replyRes) => {
             if (reqId !== state.aiRequestId) return;
+            replyUsage = replyRes._usage || null;
             combined = { ...combined, ...replyRes };
             renderResults(
               {
@@ -343,6 +428,7 @@
               },
               false
             );
+            renderActionTokenMeta(mergeUsage(trUsage, replyUsage), combined._usedModel);
           });
 
         const settled = await Promise.allSettled([trPromise, replyPromise]);
@@ -357,6 +443,7 @@
         }
         state.currentDraft = combined;
         renderResults(combined, false);
+        renderActionTokenMeta(mergeUsage(trUsage, replyUsage), combined._usedModel);
         const switchedNote = combined._switchedFrom && combined._usedModel
           ? ` — otomatik geçiş: ${combined._usedModel}`
           : '';
@@ -370,6 +457,7 @@
         if (reqId !== state.aiRequestId) return;
         state.currentDraft = res;
         renderResults(res, true);
+        renderActionTokenMeta(res._usage, res._usedModel);
         const switchedNote = res._switchedFrom && res._usedModel
           ? ` — otomatik geçiş: ${res._usedModel}`
           : '';
@@ -416,6 +504,7 @@
       state.currentDraft = { ...state.currentDraft, ...updated };
       renderRevisionHistory();
       renderResults(state.currentDraft, isCompose);
+      renderActionTokenMeta(updated._usage, updated._usedModel);
       revisionInput.value = '';
       showToast('Yanıt güncellendi');
     } catch (err) {
@@ -503,8 +592,9 @@
   }
 
   async function init() {
-    const res = await api.settings.get();
+    const [res, usageSummary] = await Promise.all([api.settings.get(), api.usage.get()]);
     applySettingsToUi(res.settings, res.activeShortcut);
+    renderUsageSummary(usageSummary);
     if (res.shortcutWarning) {
       shortcutWarningText.textContent = res.shortcutWarning;
       shortcutWarningText.classList.remove('hidden');
@@ -537,6 +627,18 @@
 
   hideBtn.addEventListener('click', () => api.window.hide());
   goToSettingsBtn.addEventListener('click', () => switchTab('settings'));
+  statusUsageBtn.addEventListener('click', () => {
+    switchTab('settings');
+    const card = $('usageStatsCard');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  });
+  resetUsageBtn.addEventListener('click', async () => {
+    const summary = await api.usage.reset();
+    renderUsageSummary(summary);
+    aiTokenMeta.classList.add('hidden');
+    aiTokenMeta.textContent = '';
+    showToast('Token sayacı sıfırlandı');
+  });
 
   loadClipboardBtn.addEventListener('click', () => {
     if (!state.pendingClipboard) return;
@@ -888,6 +990,10 @@
 
   api.events.onOcrError(({ message }) => {
     showToast(message || 'OCR hatası oluştu');
+  });
+
+  api.events.onUsageUpdated((summary) => {
+    renderUsageSummary(summary);
   });
 
   init();

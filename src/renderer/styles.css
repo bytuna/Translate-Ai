@@ -797,6 +797,74 @@ kbd {
   font-weight: 600;
 }
 
+.status-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-pill-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: #cbd5e1;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.status-pill-btn:hover {
+  border-color: var(--accent);
+  color: #6ee7b7;
+}
+
+.token-inline-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.usage-tile {
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.usage-tile-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.usage-tile strong {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.model-usage-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-usage-chip {
+  font-size: 11px;
+  color: #cbd5e1;
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
 /* Custom thin scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
