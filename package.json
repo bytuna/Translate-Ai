@@ -1,0 +1,50 @@
+{
+  "name": "lumina-ai-mail",
+  "version": "2.0.0",
+  "description": "Lumina AI Mail v2 - Outlook-safe Gemini Email Translation & Business Reply Assistant",
+  "author": "Ilker Tuna",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.js",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "electron": "^30.5.1",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.bytuna.lumina-ai-mail",
+    "productName": "Lumina AI Mail",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
